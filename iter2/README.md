@@ -44,10 +44,28 @@
 
 ---
 
-## 🔬 3. GPU 딥러닝 모델 학습 & Show Numbers
+## 🚀 4. 실행 방법 (How to Run)
 
-* **모델 아키텍처**: 2-Layer Bidirectional LSTM with Attention (`iter2/motion_learning/motion_lstm.py`)
-* **입력 데이터**: 30 프레임(약 0.5초) 관절 궤적 및 속도 시퀀스 $(B \times 30 \times 63)$
-* **정량 지표 비교**:
-  * ❌ 정적 2D 키포인트 룰베이스: **정확도 62.4%** (잽과 가드 오인식 심각)
-  * ✅ 시계열 Bi-LSTM (GPU 학습): **정확도 98.7% (↑36.3%p)** 달성!
+### 1) 서버 실행
+```bash
+conda activate pjt-4
+python iter2/run_arena_server.py
+```
+*(또는 `iter2\run_arena_server.bat` 더블클릭)*
+
+### 2) 접속 주소
+* **Host 관제 대형 3D 링**: `https://localhost:8000/arena`
+* **Fighter 1 (Red)**: `https://147.47.201.63:8000/client?id=client_1`
+* **Fighter 2 (Cyan)**: `https://147.47.201.63:8000/client?id=client_2`
+* **Fighter 3 (Gold)**: `https://147.47.201.63:8000/client?id=client_3`
+* **Fighter 4 (Green)**: `https://147.47.201.63:8000/client?id=client_4`
+
+---
+
+## 🕹️ 5. 상세 조작 가이드 (Control Guide)
+
+* **👊 왼손 잽**: 왼손을 앞으로 찌름 (데미지 12)
+* **👊 오른손 스트레이트**: 오른손을 앞으로 찌름 (데미지 16)
+* **🌀 훅 / ⬆️ 어퍼컷**: 팔을 회전하거나 아래에서 위로 올려침 (데미지 18 ~ 25)
+* **🛡️ 더블 가드**: 양손을 얼굴 앞으로 모음 (받는 피해 80% 방어)
+* **🏃 풋워크 이동**: 몸을 좌우로 기울이거나 키보드 `[W / A / S / D]`로 링 위 이동 및 360도 회전

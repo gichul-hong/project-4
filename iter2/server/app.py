@@ -21,16 +21,22 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 class ArenaGameManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
+        self.last_attack_times: Dict[str, float] = {}
+        self.reset_game()
+
+    def reset_game(self):
         self.fighters = {
-            "client_1": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [-15, 0, 0]},
-            "client_2": {"name": "Cyan Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [15, 0, 0]},
-            "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -15]},
-            "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 15]},
+            "client_1": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [-12, 0, 0], "world_x": -12, "world_z": 0, "yaw": 1.57},
+            "client_2": {"name": "Cyan Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [12, 0, 0], "world_x": 12, "world_z": 0, "yaw": -1.57},
+            "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.14},
+            "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0},
         }
 
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
         self.active_connections[client_id] = websocket
+        if client_id in self.fighters:
+            self.fighters[client_id]["hp"] = 100 # 접속 시 HP 100 초기화!
         print(f"[+] Fighter connected: {client_id}")
         await self.broadcast({
             "type": "game_state",
@@ -57,7 +63,12 @@ class ArenaGameManager:
             self.disconnect(cid)
 
     def process_attack(self, attacker_id: str, action: str, velocity: float):
-        """타격 데미지 계산 및 HP 차감 로직"""
+        """0.4초 쿨다운 적용, HP>0 생존자만 타격/공격, 정면 단일 타겟 정밀 타격"""
+
+        attacker = self.fighters.get(attacker_id, {})
+        if attacker.get("hp", 0) <= 0:
+            print(f"[DEBUG] process_attack: attacker {attacker_id} hp=0, skip")
+            return None
         damage_table = {
             "JAB_STRAIGHT": 12,
             "LEFT_JAB": 12,
@@ -70,24 +81,67 @@ class ArenaGameManager:
         if raw_dmg == 0:
             return None
 
-        # 속도 가산치
+        # 0.4초 타격 쿨다운 검사 (초고속 연타 버그 방지)
+        now = asyncio.get_event_loop().time()
+        last_time = self.last_attack_times.get(attacker_id, 0.0)
+        if now - last_time < 0.4:
+            return None
+        self.last_attack_times[attacker_id] = now
+
         dmg = int(raw_dmg * (1.0 + min(velocity, 50.0) / 100.0))
 
-        # 가장 가까운 상대방에게 타격 적용
-        hits = []
+        att_x = attacker.get("world_x", attacker.get("pos", [0, 0, 0])[0])
+        att_z = attacker.get("world_z", attacker.get("pos", [0, 0, 0])[2])
+        att_yaw = attacker.get("yaw", 0.0)
+
+        import math
+        look_dx = -math.sin(att_yaw)
+        look_dz = -math.cos(att_yaw)
+        print(f"[DEBUG] {attacker_id} attack: {action} vel={velocity:.1f} "
+              f"pos=({att_x:.1f},{att_z:.1f}) yaw={att_yaw:.2f} "
+              f"look=({look_dx:.2f},{look_dz:.2f})")
+
+        best_target_id = None
+        min_dist = 999.0
+
         for target_id, fighter in self.fighters.items():
-            if target_id != attacker_id and target_id in self.active_connections:
-                is_guard = (fighter["action"] in ["TWO_HAND_GUARD", "DUAL_GUARD"])
-                actual_dmg = int(dmg * 0.2) if is_guard else dmg
-                fighter["hp"] = max(0, fighter["hp"] - actual_dmg)
-                hits.append({
-                    "target_id": target_id,
-                    "damage": actual_dmg,
-                    "is_guard": is_guard,
-                    "target_hp": fighter["hp"]
-                })
-                if fighter["hp"] == 0:
-                    self.fighters[attacker_id]["score"] += 1
+            if target_id != attacker_id and fighter.get("hp", 0) > 0:
+                tgt_x = fighter.get("world_x", fighter.get("pos", [0, 0, 0])[0])
+                tgt_z = fighter.get("world_z", fighter.get("pos", [0, 0, 0])[2])
+
+                to_tgt_x = tgt_x - att_x
+                to_tgt_z = tgt_z - att_z
+                dist = (to_tgt_x**2 + to_tgt_z**2)**0.5
+
+                if dist <= 18.0 and dist > 0.1:
+                    dot = (look_dx * to_tgt_x + look_dz * to_tgt_z) / dist
+                    print(f"[DEBUG]   target {target_id}: dist={dist:.1f} dot={dot:.2f}")
+                    if dot > 0.3:
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_target_id = target_id
+
+        if best_target_id is None:
+            print(f"[DEBUG]   -> no target in front (best_target_id=None)")
+        else:
+            print(f"[DEBUG]   -> hit {best_target_id} dist={min_dist:.1f}")
+
+        hits = []
+        if best_target_id:
+            fighter = self.fighters[best_target_id]
+            is_guard = (fighter.get("action") in ["TWO_HAND_GUARD", "DUAL_GUARD"])
+            actual_dmg = int(dmg * 0.2) if is_guard else dmg
+            fighter["hp"] = max(0, fighter["hp"] - actual_dmg)
+            hits.append({
+                "attacker_id": attacker_id,
+                "target_id": best_target_id,
+                "damage": actual_dmg,
+                "is_guard": is_guard,
+                "target_hp": fighter["hp"],
+                "distance": round(min_dist, 1)
+            })
+            if fighter["hp"] == 0:
+                attacker["score"] = attacker.get("score", 0) + 1
 
         return hits
 
@@ -108,6 +162,19 @@ async def get_client_page(request: Request, id: str = "client_1"):
         name="fighter_client.html",
         context={"client_id": id, "name": fighter["name"], "color": fighter["color"]}
     )
+
+@app.post("/api/reset-game")
+@app.get("/api/reset-game")
+async def reset_game_endpoint():
+    """모든 파이터 HP 100 및 점수 초기화"""
+    manager.reset_game()
+    await manager.broadcast({
+        "type": "game_state",
+        "event": "game_reset",
+        "fighters": manager.fighters,
+        "active_users": list(manager.active_connections.keys())
+    })
+    return {"status": "success", "message": "Game reset to 100 HP"}
 
 @app.get("/api/motion-eval")
 async def get_motion_eval():
@@ -134,13 +201,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             action = payload.get("action", "IDLE")
             velocity = payload.get("velocity", 0.0)
 
-            # 파이터 액션 및 위치 갱신
+            # 파이터 액션 및 3D 월드 위치 갱신
             if client_id in manager.fighters:
                 manager.fighters[client_id]["action"] = action
-                if "pos_x" in payload:
-                    manager.fighters[client_id]["pos_x"] = payload["pos_x"]
-                if "pos_z" in payload:
-                    manager.fighters[client_id]["pos_z"] = payload["pos_z"]
+                if "world_x" in payload:
+                    manager.fighters[client_id]["world_x"] = payload["world_x"]
+                if "world_z" in payload:
+                    manager.fighters[client_id]["world_z"] = payload["world_z"]
+                if "yaw" in payload:
+                    manager.fighters[client_id]["yaw"] = payload["yaw"]
 
             # 타격 이벤트 판정 (양손 액션 포함)
             hit_results = None

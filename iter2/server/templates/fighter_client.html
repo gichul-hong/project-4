@@ -212,6 +212,40 @@
 
     socket.onopen = () => console.log(`[✓] Connected as ${clientId}`);
 
+    // --- Web Audio 사운드 합성기 (내 랩탑 실시간 타격음 & 바람소리) ---
+    let actx = null;
+    function ensureAudio() {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === "suspended") actx.resume();
+      return actx;
+    }
+    function playThud(freq = 150) {
+      try {
+        const c = ensureAudio(), t = c.currentTime;
+        const osc = c.createOscillator(), gain = c.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.4, t + 0.12);
+        gain.gain.setValueAtTime(0.8, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.connect(gain).connect(c.destination);
+        osc.start(t); osc.stop(t + 0.2);
+      } catch(e) {}
+    }
+    function playWhoosh() {
+      try {
+        const c = ensureAudio(), t = c.currentTime;
+        const sr = c.sampleRate, buf = c.createBuffer(1, sr * 0.15, sr);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        const src = c.createBufferSource(); src.buffer = buf;
+        const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1200;
+        const g = c.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        src.connect(bp).connect(g).connect(c.destination);
+        src.start(t);
+      } catch(e) {}
+    }
+
     // --- 2. 우측 1인칭 3D 복싱 링 씬 구축 ---
     const ringContainer = document.getElementById('first-person-ring');
     const scene = new THREE.Scene();
@@ -261,19 +295,20 @@
     cameraRig.add(myLeftGlove);
     cameraRig.add(myRightGlove);
 
-    // 상대방 아바타 3명 생성 (내 전방 시야에 배치)
-    const opponentConfigs = {
-      "client_1": { color: 0xff3366, name: "Red Boxer", pos: [-7, 0, -10] },
-      "client_2": { color: 0x00e5ff, name: "Cyan Boxer", pos: [7, 0, -10] },
-      "client_3": { color: 0xffd700, name: "Gold Mage", pos: [0, 0, -13] },
-      "client_4": { color: 0x00ff66, name: "Green Striker", pos: [-10, 0, -7] }
+    // --- 상대방 3인 3D 월드 아바타 생성 (서버 링 월드 맵과 100% 동일한 좌표 공유) ---
+    const allFighterWorldConfigs = {
+      "client_1": { pos: [-12, 0, 0], yaw: Math.PI / 2, color: 0xff3366, name: "Red Boxer" },
+      "client_2": { pos: [12, 0, 0], yaw: -Math.PI / 2, color: 0x00e5ff, name: "Cyan Boxer" },
+      "client_3": { pos: [0, 0, -12], yaw: 0, color: 0xffd700, name: "Gold Mage" },
+      "client_4": { pos: [0, 0, 12], yaw: Math.PI, color: 0x00ff66, name: "Green Striker" }
     };
 
     const opponentMeshes = {};
 
-    Object.keys(opponentConfigs).forEach(id => {
-      if (id === clientId) return;
-      const cfg = opponentConfigs[id];
+    Object.keys(allFighterWorldConfigs).forEach(id => {
+      if (id === clientId) return; // 나 자신은 제외 (1인칭 내 시점)
+
+      const cfg = allFighterWorldConfigs[id];
       const group = new THREE.Group();
 
       const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.0, 4.5, 8), new THREE.MeshStandardMaterial({ color: 0x222633 }));
@@ -284,7 +319,12 @@
       head.position.y = 5.5;
       group.add(head);
 
-      const gMat = new THREE.MeshStandardMaterial({ color: cfg.color, emissive: cfg.color, emissiveIntensity: 0.3 });
+      // 정면 바이저
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 0.5), new THREE.MeshBasicMaterial({ color: cfg.color }));
+      visor.position.set(0, 5.5, 1.1);
+      group.add(visor);
+
+      const gMat = new THREE.MeshStandardMaterial({ color: cfg.color, emissive: cfg.color, emissiveIntensity: 0.4 });
       const lg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
       const rg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
       lg.position.set(-1.8, 3.2, 1.5);
@@ -299,8 +339,9 @@
       shield.position.y = 3.5;
       group.add(shield);
 
-      group.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
-      group.lookAt(0, 5, 14);
+      // 실제 월드 좌표 및 링 중앙 마주보기 각도 배치
+      group.position.set(cfg.pos[0], 0, cfg.pos[2]);
+      group.rotation.y = cfg.yaw;
       scene.add(group);
       opponentMeshes[id] = { group, head, body, leftGlove: lg, rightGlove: rg, shield };
     });
@@ -309,25 +350,55 @@
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.fighters && data.fighters[clientId]) {
-        const myHp = data.fighters[clientId].hp;
-        myHpBadge.innerText = `HP: ${myHp}`;
-        myHpBadge.style.color = myHp > 40 ? '#00ff66' : '#ff3366';
+      // 1. 내 HP 및 상대방 HP 업데이트
+      if (data.fighters) {
+        if (data.fighters[clientId]) {
+          const myHp = data.fighters[clientId].hp;
+          myHpBadge.innerText = `HP: ${myHp}`;
+          myHpBadge.style.color = myHp > 40 ? '#00ff66' : '#ff3366';
+        }
       }
 
-      if (data.hits) {
+      // 2. 타격 이벤트 피드백 (내가 때렸을 때 vs 내가 맞았을 때)
+      if (data.hits && data.hits.length > 0) {
         data.hits.forEach(hit => {
+          // A) 내가 상대방을 때렸을 때!
+          if (hit.attacker_id === clientId) {
+            const opp = opponentMeshes[hit.target_id];
+            if (opp) {
+              opp.group.position.z -= 1.5; // 피격 넉백
+              setTimeout(() => { opp.group.position.z += 1.5; }, 150);
+            }
+            actionText.innerHTML = `<span style="color:#00ff66">💥 HIT! -${hit.damage} HP (적 HP: ${hit.target_hp})</span>`;
+            if (hit.is_guard) {
+              playWhoosh();
+            } else {
+              playThud(140);
+            }
+          }
+          // B) 내가 피격당했을 때!
           if (hit.target_id === clientId) {
             hitFlash.style.display = 'block';
             setTimeout(() => { hitFlash.style.display = 'none'; }, 200);
+            playThud(90); // 둔탁한 피격음
           }
         });
       }
 
+      // 3. 상대방 3D 아바타 실시간 위치 및 회전 동기화
       const senderId = data.client_id;
       if (senderId && senderId !== clientId && opponentMeshes[senderId]) {
         const opp = opponentMeshes[senderId];
         const action = data.action;
+
+        // 상대방 실시간 이동 반영
+        if (data.world_x !== undefined && data.world_z !== undefined) {
+          opp.group.position.x = THREE.MathUtils.lerp(opp.group.position.x, data.world_x, 0.6);
+          opp.group.position.z = THREE.MathUtils.lerp(opp.group.position.z, data.world_z, 0.6);
+        }
+        if (data.yaw !== undefined) {
+          opp.group.rotation.y = THREE.MathUtils.lerp(opp.group.rotation.y, data.yaw + Math.PI, 0.6);
+        }
 
         if (action === "JAB_STRAIGHT" || action === "RIGHT_CROSS") {
           opp.rightGlove.position.z = 4.5;
@@ -342,16 +413,44 @@
       }
     };
 
-    // --- 4. 키보드 시점 회전 및 이동 조작 (A/D or Arrow Keys) ---
+    // --- 4. 파이터 월드 좌표 & 링 초기 위치 설정 (정면이 링 중앙을 바라봄) ---
+    const fighterStartConfigs = {
+      "client_1": { x: -12, z: 0, yaw: -Math.PI / 2 },  // +X (링 중앙) 바라봄
+      "client_2": { x: 12, z: 0, yaw: Math.PI / 2 },   // -X (링 중앙) 바라봄
+      "client_3": { x: 0, z: -12, yaw: Math.PI },       // +Z (링 중앙) 바라봄
+      "client_4": { x: 0, z: 12, yaw: 0 }              // -Z (링 중앙) 바라봄
+    };
+
+    const myStart = fighterStartConfigs[clientId] || fighterStartConfigs["client_1"];
+    let playerX = myStart.x;
+    let playerZ = myStart.z;
+    let rotationAngle = myStart.yaw;
+
+    cameraRig.position.set(playerX, 5, playerZ);
+    cameraRig.rotation.y = rotationAngle;
+
     const keys = {};
     window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
     window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
-    let rotationAngle = 0;
-
-    // --- 5. MediaPipe 양손 추적 & 펀치 타격 ---
+    // --- 5. MediaPipe 양손 추적 & 펀치 즉시 발사 (Instant Trigger with Cooldown) ---
     let prevHands = {};
     let punchTargetZL = -3.5, punchTargetZR = -3.5;
+    let currentAction = "IDLE", currentVelocity = 0.0;
+    let lastPunchTimestamp = 0;
+
+    function sendCombatPacket(action, vel) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          action: action,
+          velocity: vel,
+          world_x: playerX,
+          world_z: playerZ,
+          yaw: rotationAngle,
+          timestamp: performance.now()
+        }));
+      }
+    }
 
     const hands = new Hands({
       locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
@@ -382,10 +481,9 @@
 
       let detectedAction = "IDLE";
       let maxVelocity = 0.0;
-      let centerHandX = 0.5, handCount = 0;
 
       if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-        handCount = res.multiHandLandmarks.length;
+        const handCount = res.multiHandLandmarks.length;
 
         for (let i = 0; i < handCount; i++) {
           const lm = res.multiHandLandmarks[i];
@@ -394,39 +492,42 @@
           drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, { color: handedness === "Left" ? "#00e5ff" : userColor, lineWidth: 3 });
           drawLandmarks(canvasCtx, lm, { color: '#ffffff', fillColor: userColor, radius: 4 });
 
-          centerHandX += lm[0].x;
-
-          // 속도 계산
-          const p = prevHands[handedness] || { x: lm[8].x, y: lm[8].y, t: now };
-          const dt = Math.max((now - p.t) / 1000, 0.001);
-          const dist = Math.hypot(lm[8].x - p.x, lm[8].y - p.y);
-          const velKmH = (dist * 1.5 / dt) * 3.6;
+          // 첫 프레임 튀는 속도 방지
+          const p = prevHands[handedness];
+          let velKmH = 0.0;
+          if (p && (now - p.t) > 20) {
+            const dt = (now - p.t) / 1000;
+            const dist = Math.hypot(lm[8].x - p.x, lm[8].y - p.y);
+            velKmH = (dist * 1.5 / dt) * 3.6;
+          }
           prevHands[handedness] = { x: lm[8].x, y: lm[8].y, t: now };
 
-          if (velKmH > maxVelocity) maxVelocity = velKmH;
+          if (velKmH > maxVelocity && velKmH < 100.0) maxVelocity = velKmH;
 
-          // 개별 글러브 3D 위치 (거울 모드에 맞춤)
-          // lm[8].x (0~1) -> 화면 오른쪽이 큰 x
+          // 3D 글러브 위치
           if (handedness === "Left") {
             myLeftGlove.position.x = (lm[8].x - 0.5) * 4.0 - 1.5;
             myLeftGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (velKmH > 22.0) {
+            if (velKmH > 24.0 && (now - lastPunchTimestamp) > 400) {
+              lastPunchTimestamp = now;
               detectedAction = "LEFT_JAB";
-              punchTargetZL = -8.5; // 전방으로 돌진!
+              punchTargetZL = -8.5;
+              playWhoosh();
+              sendCombatPacket("LEFT_JAB", velKmH);
             }
           } else {
             myRightGlove.position.x = (lm[8].x - 0.5) * 4.0 + 1.5;
             myRightGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (velKmH > 22.0) {
+            if (velKmH > 24.0 && (now - lastPunchTimestamp) > 400) {
+              lastPunchTimestamp = now;
               detectedAction = "RIGHT_CROSS";
-              punchTargetZR = -8.5; // 전방으로 돌진!
+              punchTargetZR = -8.5;
+              playWhoosh();
+              sendCombatPacket("RIGHT_CROSS", velKmH);
             }
           }
         }
 
-        centerHandX /= (handCount + 1);
-
-        // 더블 가드 판정
         if (handCount >= 2) {
           const l0 = res.multiHandLandmarks[0][0];
           const l1 = res.multiHandLandmarks[1][0];
@@ -435,22 +536,10 @@
           }
         }
 
-        // 상체 풋워크
-        const leanOffset = (centerHandX - 0.5) * 2;
-        if (Math.abs(leanOffset) > 0.25) {
-          cameraRig.position.x += leanOffset * 0.15;
-          moveHud.innerText = leanOffset > 0 ? "Footwork: STEP RIGHT" : "Footwork: STEP LEFT";
-        } else {
-          moveHud.innerText = "Footwork: CENTER (A/D: 회전, WASD: 이동)";
-        }
-
-        cameraRig.position.x = Math.max(-16, Math.min(16, cameraRig.position.x));
-        cameraRig.position.z = Math.max(-16, Math.min(16, cameraRig.position.z));
-
         actionText.innerText = detectedAction;
         speedText.innerText = maxVelocity.toFixed(1);
-        currentAction = detectedAction;
-        currentVelocity = maxVelocity;
+        currentAction = (detectedAction === "DUAL_GUARD") ? "DUAL_GUARD" : "IDLE";
+        currentVelocity = 0.0;
       } else {
         actionText.innerText = "IDLE";
         speedText.innerText = "0.0";
@@ -466,48 +555,44 @@
     });
     cameraUtils.start();
 
-    // --- 6. 30 FPS 고정 네트워크 패킷 송신 루프 (손 인식과 무관하게 항상 이동 동기화) ---
-    const INIT_CAMERA_Z = 14;
-    let currentAction = "IDLE", currentVelocity = 0.0;
-
+    // --- 6. 30 FPS 고정 위치 동기화 루프 ---
     setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) {
-        // 상대 이동 오프셋 (Delta X, Delta Z)
-        const deltaX = cameraRig.position.x;
-        const deltaZ = cameraRig.position.z - INIT_CAMERA_Z;
+      sendCombatPacket(currentAction, currentVelocity);
+    }, 33);
 
-        socket.send(JSON.stringify({
-          action: currentAction,
-          velocity: currentVelocity,
-          pos_x: deltaX,
-          pos_z: deltaZ,
-          yaw: rotationAngle,
-          timestamp: performance.now()
-        }));
-      }
-    }, 33); // 30 FPS (33ms)
-
-    // 3D 렌더 및 시점 회전 루프
+    // 3D 렌더 및 직관적인 링 위 이동 루프
     function animate(now) {
       requestAnimationFrame(animate);
 
-      // 키보드 회전 & 이동 (WASD)
+      // A / D : 시점 및 몸통 회전
       if (keys['a'] || keys['arrowleft']) {
         rotationAngle += 0.04;
-        cameraRig.rotation.y = rotationAngle;
       }
       if (keys['d'] || keys['arrowright']) {
         rotationAngle -= 0.04;
-        cameraRig.rotation.y = rotationAngle;
-      }
-      if (keys['w'] || keys['arrowup']) {
-        cameraRig.translateZ(-0.25);
-      }
-      if (keys['s'] || keys['arrowdown']) {
-        cameraRig.translateZ(0.25);
       }
 
-      // 왼손 글러브 전방 타격 & 회수
+      // W / S : 내가 바라보는 방향으로 직관적 전진/후진
+      // Three.js 좌표계: rotationAngle일 때 전방 벡터 = (-sin(yaw), -cos(yaw))
+      if (keys['w'] || keys['arrowup']) {
+        playerX -= Math.sin(rotationAngle) * 0.25;
+        playerZ -= Math.cos(rotationAngle) * 0.25;
+      }
+      if (keys['s'] || keys['arrowdown']) {
+        playerX += Math.sin(rotationAngle) * 0.25;
+        playerZ += Math.cos(rotationAngle) * 0.25;
+      }
+
+      // 링 경계선 제한 (-16 ~ 16)
+      playerX = Math.max(-16, Math.min(16, playerX));
+      playerZ = Math.max(-16, Math.min(16, playerZ));
+
+      cameraRig.position.set(playerX, 5, playerZ);
+      cameraRig.rotation.y = rotationAngle;
+
+      moveHud.innerText = `Pos: (${playerX.toFixed(1)}, ${playerZ.toFixed(1)}) | WASD: 이동, A/D: 회전`;
+
+      // 왼손 펀치 회수
       if (punchTargetZL < -3.5) {
         myLeftGlove.position.z = punchTargetZL;
         punchTargetZL += 0.6;
@@ -515,7 +600,7 @@
         myLeftGlove.position.z = -3.5;
       }
 
-      // 오른손 글러브 전방 타격 & 회수
+      // 오른손 펀치 회수
       if (punchTargetZR < -3.5) {
         myRightGlove.position.z = punchTargetZR;
         punchTargetZR += 0.6;
