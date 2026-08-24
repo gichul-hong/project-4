@@ -99,7 +99,7 @@ class ArenaGameManager:
         look_dz = -math.cos(att_yaw)
         print(f"[DEBUG] {attacker_id} attack: {action} vel={velocity:.1f} "
               f"pos=({att_x:.1f},{att_z:.1f}) yaw={att_yaw:.2f} "
-              f"look=({look_dx:.2f},{look_dz:.2f})")
+              f"look=({look_dx:.2f},{look_dz:.2f})", flush=True)
 
         best_target_id = None
         min_dist = 999.0
@@ -115,16 +115,18 @@ class ArenaGameManager:
 
                 if dist <= 18.0 and dist > 0.1:
                     dot = (look_dx * to_tgt_x + look_dz * to_tgt_z) / dist
-                    print(f"[DEBUG]   target {target_id}: dist={dist:.1f} dot={dot:.2f}")
-                    if dot > 0.3:
+                    # 근접(< 6)이면 방향 무시하고 무조건 타격, 그 외에는 정면 60도 이내만 허용
+                    hit = (dist < 6.0) or (dot > 0.5)
+                    print(f"[DEBUG]   target {target_id}: dist={dist:.1f} dot={dot:.2f} hit={hit}", flush=True)
+                    if hit:
                         if dist < min_dist:
                             min_dist = dist
                             best_target_id = target_id
 
         if best_target_id is None:
-            print(f"[DEBUG]   -> no target in front (best_target_id=None)")
+            print(f"[DEBUG]   -> no target hit", flush=True)
         else:
-            print(f"[DEBUG]   -> hit {best_target_id} dist={min_dist:.1f}")
+            print(f"[DEBUG]   -> hit {best_target_id} dist={min_dist:.1f}", flush=True)
 
         hits = []
         if best_target_id:

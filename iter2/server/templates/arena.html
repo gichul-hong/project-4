@@ -548,6 +548,7 @@
     // --- 4. 렌더 루프 ---
     let frameCount = 0, lastTime = performance.now();
     const baseCamPos = new THREE.Vector3(0, 35, 55);
+    const fpsEl = document.getElementById('stat-fps');
 
     function animate(now) {
       requestAnimationFrame(animate);
@@ -555,7 +556,7 @@
       // FPS 측정
       frameCount++;
       if (now - lastTime >= 1000) {
-        document.getElementById('stat-fps').innerText = frameCount;
+        if (fpsEl) fpsEl.innerText = frameCount;
         frameCount = 0;
         lastTime = now;
       }

@@ -80,7 +80,8 @@
       width: 100%;
       height: 100%;
       transform: scaleX(-1);
-      object-fit: cover;
+      object-fit: contain;
+      background: #000;
     }
     #first-person-ring {
       width: 100%;
@@ -252,9 +253,10 @@
     scene.background = new THREE.Color(0x080a10);
     scene.fog = new THREE.FogExp2(0x080a10, 0.02);
 
-    const camera = new THREE.PerspectiveCamera(50, ringContainer.clientWidth / ringContainer.clientHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(68, ringContainer.clientWidth / ringContainer.clientHeight, 0.1, 1000);
     const cameraRig = new THREE.Group(); // 이동 및 회전을 담당하는 리그
     cameraRig.position.set(0, 5, 14);
+    camera.position.set(0, 0.6, 5.5); // 살짝 뒤로 & 위로 당겨 원경감 확보
     cameraRig.add(camera);
     scene.add(cameraRig);
 
