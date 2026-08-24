@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import math
 from typing import Dict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -18,6 +19,10 @@ os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # 4인 파이터 상태 관리자
+COLLIDER_RADIUS = 2.8
+MIN_FIGHTER_DIST = COLLIDER_RADIUS * 2  # 5.6 — 두 파이터가 겹치지 않는 최소 거리
+
+
 class ArenaGameManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
@@ -31,6 +36,34 @@ class ArenaGameManager:
             "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.14},
             "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0},
         }
+
+    def enforce_collision(self):
+        """모든 파이터 쌍 간 거리 검사 → 겹치면 서로 밀어냄. 수정된 world_x/z를 반환."""
+        corrections = {}  # {client_id: (new_x, new_z)}
+        ids = list(self.fighters.keys())
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = ids[i], ids[j]
+                fa = self.fighters[a]
+                fb = self.fighters[b]
+                ax, az = fa.get("world_x", fa.get("pos", [0, 0, 0])[0]), fa.get("world_z", fa.get("pos", [0, 0, 0])[2])
+                bx, bz = fb.get("world_x", fb.get("pos", [0, 0, 0])[0]), fb.get("world_z", fb.get("pos", [0, 0, 0])[2])
+                dx, dz = ax - bx, az - bz
+                dist = math.hypot(dx, dz)
+                if dist < MIN_FIGHTER_DIST and dist > 0.001:
+                    nx, nz = dx / dist, dz / dist
+                    push = (MIN_FIGHTER_DIST - dist) / 2
+                    ca = corrections.get(a, (ax, az))
+                    cb = corrections.get(b, (bx, bz))
+                    corrections[a] = (ca[0] + nx * push, ca[1] + nz * push)
+                    corrections[b] = (cb[0] - nx * push, cb[1] - nz * push)
+        # 기록 반영
+        for cid, (x, z) in corrections.items():
+            x = max(-16.0, min(16.0, x))
+            z = max(-16.0, min(16.0, z))
+            self.fighters[cid]["world_x"] = x
+            self.fighters[cid]["world_z"] = z
+        return corrections
 
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
@@ -63,24 +96,27 @@ class ArenaGameManager:
             self.disconnect(cid)
 
     def process_attack(self, attacker_id: str, action: str, velocity: float):
-        """0.4초 쿨다운 적용, HP>0 생존자만 타격/공격, 정면 단일 타겟 정밀 타격"""
+        """공격 타입별 사거리: 근접(7유닛), 장풍(26유닛). 정면 dot 우선 타겟."""
 
         attacker = self.fighters.get(attacker_id, {})
         if attacker.get("hp", 0) <= 0:
             return None
-        damage_table = {
-            "JAB_STRAIGHT": 12,
-            "LEFT_JAB": 12,
-            "RIGHT_CROSS": 16,
-            "LEFT_HOOK": 18,
-            "RIGHT_UPPERCUT": 25,
-            "ENERGY_WAVE": 40
-        }
-        raw_dmg = damage_table.get(action, 0)
-        if raw_dmg == 0:
-            return None
 
-        # 0.4초 타격 쿨다운 검사 (초고속 연타 버그 방지)
+        # (액션, 데미지, 최대사거리, dot 임계값)
+        attack_specs = {
+            "JAB_STRAIGHT":    (12, 7.0, 0.85),
+            "LEFT_JAB":        (12, 7.0, 0.85),
+            "RIGHT_CROSS":     (16, 7.0, 0.85),
+            "LEFT_HOOK":       (18, 7.0, 0.85),
+            "RIGHT_UPPERCUT":  (25, 6.0, 0.80),
+            "ENERGY_WAVE":     (40, 26.0, 0.85),
+        }
+        spec = attack_specs.get(action)
+        if not spec:
+            return None
+        raw_dmg, max_range, dot_threshold = spec
+
+        # 0.4초 쿨다운
         now = asyncio.get_event_loop().time()
         last_time = self.last_attack_times.get(attacker_id, 0.0)
         if now - last_time < 0.4:
@@ -93,12 +129,11 @@ class ArenaGameManager:
         att_z = attacker.get("world_z", attacker.get("pos", [0, 0, 0])[2])
         att_yaw = attacker.get("yaw", 0.0)
 
-        import math
         look_dx = -math.sin(att_yaw)
         look_dz = -math.cos(att_yaw)
 
         best_target_id = None
-        best_dot = -2.0   # 정면 정렬도 우선: dot이 가장 높은(=정면에 가장 가까운) 상대 선택
+        best_dot = -2.0
 
         for target_id, fighter in self.fighters.items():
             if target_id != attacker_id and fighter.get("hp", 0) > 0:
@@ -109,14 +144,9 @@ class ArenaGameManager:
                 to_tgt_z = tgt_z - att_z
                 dist = (to_tgt_x**2 + to_tgt_z**2)**0.5
 
-                # 사거리: 링 정면 최대 거리(24)를 커버하도록 26으로 확대
-                if dist <= 26.0 and dist > 0.1:
+                if dist <= max_range and dist > 0.1:
                     dot = (look_dx * to_tgt_x + look_dz * to_tgt_z) / dist
-                    # 근접(< 6)이면 방향 무시, 그 외엔 정면 30도 이내(dot>0.85)만 허용.
-                    # 대각선(45도, dot 0.71) 상대를 오인식하지 않도록 콘을 좁힘.
-                    # 타겟은 "정면 정렬도(dot)가 가장 높은" 상대를 우선 선택.
-                    hit = (dist < 6.0) or (dot > 0.85)
-                    if hit and dot > best_dot:
+                    if dot > dot_threshold and dot > best_dot:
                         best_dot = dot
                         best_target_id = target_id
 
@@ -207,6 +237,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     manager.fighters[client_id]["world_z"] = payload["world_z"]
                 if "yaw" in payload:
                     manager.fighters[client_id]["yaw"] = payload["yaw"]
+
+            # 서버 권한 충돌 해소 — 모든 파이터가 겹치면 밀어냄
+            manager.enforce_collision()
 
             # 타격 이벤트 판정 (양손 액션 포함)
             hit_results = None

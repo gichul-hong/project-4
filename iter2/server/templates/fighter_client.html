@@ -368,6 +368,7 @@
         if (data.world_x !== undefined && data.world_z !== undefined) {
           opp.group.position.x = THREE.MathUtils.lerp(opp.group.position.x, data.world_x, 0.6);
           opp.group.position.z = THREE.MathUtils.lerp(opp.group.position.z, data.world_z, 0.6);
+          opponentPositions[senderId] = { x: data.world_x, z: data.world_z };
         }
         if (data.yaw !== undefined) {
           opp.group.rotation.y = THREE.MathUtils.lerp(opp.group.rotation.y, data.yaw + Math.PI, 0.6);
@@ -390,6 +391,8 @@
     let playerX = myStart.x;
     let playerZ = myStart.z;
     let rotationAngle = myStart.yaw;
+let lunge = 0; // 펀치 순간 앞으로 살짝 밀림 (감쇠)
+    const opponentPositions = {}; // 상대방 서버-보정 위치, 충돌은 서버가 enforce
 
     cameraRig.position.set(playerX, 5, playerZ);
     cameraRig.rotation.y = rotationAngle;
@@ -477,6 +480,7 @@
               lastPunchTimestamp = now;
               detectedAction = "LEFT_JAB";
               punchTargetZL = -8.5;
+              lunge = 0.6;
               playWhoosh();
               sendCombatPacket("LEFT_JAB", velKmH);
             }
@@ -487,6 +491,7 @@
               lastPunchTimestamp = now;
               detectedAction = "RIGHT_CROSS";
               punchTargetZR = -8.5;
+              lunge = 0.6;
               playWhoosh();
               sendCombatPacket("RIGHT_CROSS", velKmH);
             }
@@ -538,15 +543,25 @@
       }
 
       // W / S : 내가 바라보는 방향으로 직관적 전진/후진
-      // Three.js 좌표계: rotationAngle일 때 전방 벡터 = (-sin(yaw), -cos(yaw))
+      let moveX = 0, moveZ = 0;
       if (keys['w'] || keys['arrowup']) {
-        playerX -= Math.sin(rotationAngle) * 0.25;
-        playerZ -= Math.cos(rotationAngle) * 0.25;
+        moveX -= Math.sin(rotationAngle) * 0.25;
+        moveZ -= Math.cos(rotationAngle) * 0.25;
       }
       if (keys['s'] || keys['arrowdown']) {
-        playerX += Math.sin(rotationAngle) * 0.25;
-        playerZ += Math.cos(rotationAngle) * 0.25;
+        moveX += Math.sin(rotationAngle) * 0.25;
+        moveZ += Math.cos(rotationAngle) * 0.25;
       }
+
+      // 펀치 순간 앞으로 살짝 돌진 (발 디딤). 빠르게 감쇠.
+      if (lunge > 0.005) {
+        moveX -= Math.sin(rotationAngle) * lunge;
+        moveZ -= Math.cos(rotationAngle) * lunge;
+        lunge *= 0.75;
+      } else { lunge = 0; }
+
+      playerX += moveX;
+      playerZ += moveZ;
 
       // 링 경계선 제한 (-16 ~ 16)
       playerX = Math.max(-16, Math.min(16, playerX));
