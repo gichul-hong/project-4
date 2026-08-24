@@ -1,0 +1,6 @@
+{
+  "rule_based_accuracy": 0.8064,
+  "mlp_accuracy": 1.0,
+  "improvement_pct_points": 19.36,
+  "test_samples": 625
+}

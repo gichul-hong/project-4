@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🥊 AR 양손 섀도우 복싱 & 풋워크 대전 컨트롤러</title>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- MediaPipe Hands & Camera Utils CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --f-color: {{ color }};
+      --font: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif;
+      --mono: "Cascadia Mono", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #08090e;
+      color: #fff;
+      font-family: var(--font);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      background: rgba(18, 22, 34, 0.9);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      z-index: 10;
+    }
+    .brand { font-size: 16px; font-weight: 800; color: var(--f-color); }
+    .badge {
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--f-color);
+      color: var(--f-color);
+      background: rgba(0,0,0,0.5);
+    }
+
+    /* Dual Workspace */
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr;
+      gap: 16px;
+      padding: 16px;
+      flex: 1;
+      min-height: 0;
+    }
+    @media (max-width: 860px) {
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    }
+
+    .panel {
+      position: relative;
+      background: #000;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .panel.cam-view { border-color: var(--f-color); }
+    .panel.ring-view { border-color: #ffd700; }
+
+    video { display: none; }
+    canvas#cam-canvas {
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1);
+      object-fit: cover;
+    }
+    #first-person-ring {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0; left: 0;
+    }
+
+    /* HUD Elements */
+    .panel-tag {
+      position: absolute;
+      top: 12px; left: 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(0,0,0,0.7);
+      padding: 4px 10px;
+      border-radius: 4px;
+      z-index: 5;
+    }
+
+    .action-hud {
+      position: absolute;
+      bottom: 14px; left: 14px; right: 14px;
+      background: rgba(0,0,0,0.85);
+      border: 1px solid var(--f-color);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--mono);
+      z-index: 5;
+    }
+    .act-title { font-size: 18px; font-weight: 900; color: var(--f-color); }
+    .speedo { font-size: 13px; color: #00ff66; }
+
+    .hit-flash {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255, 51, 102, 0.4);
+      pointer-events: none;
+      display: none;
+      z-index: 10;
+    }
+
+    /* Direction / Movement Crosshair HUD */
+    .move-crosshair {
+      position: absolute;
+      top: 20px; right: 20px;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #aaa;
+      z-index: 5;
+    }
+
+    footer {
+      padding: 10px 20px;
+      background: rgba(18, 22, 34, 0.9);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #888;
+      font-family: var(--mono);
+    }
+    footer b { color: #fff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">🥊 {{ name }} ({{ client_id | upper }})</div>
+    <div style="display: flex; gap: 10px;">
+      <span class="badge" id="my-hp-badge" style="border-color:#00ff66; color:#00ff66;">HP: 100</span>
+      <span class="badge" id="fps-badge">60 FPS</span>
+      <a href="/arena" target="_blank" style="text-decoration:none; color:#ffd700; font-size:12px; border:1px solid #ffd700; padding:4px 8px; border-radius:4px;">🖥️ 대형 관제 링</a>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- 좌측: 웹캠 양손 추적 화면 -->
+    <div class="panel cam-view">
+      <span class="panel-tag" style="color: var(--f-color);">📷 1. 웹캠 AI 양손 & 몸 기울임 추적</span>
+      <video id="webcam" playsinline></video>
+      <canvas id="cam-canvas"></canvas>
+
+      <div class="action-hud">
+        <div>현재 모션: <span class="act-title" id="action-text">IDLE</span></div>
+        <div class="speedo">양손 타격 속도: <b id="speed-text">0.0</b> km/h</div>
+      </div>
+    </div>
+
+    <!-- 우측: 1인칭 링 대전 뷰 -->
+    <div class="panel ring-view">
+      <span class="panel-tag" style="color: #ffd700;">🥊 2. 1인칭 대전 뷰 (양손 글러브 & 풋워크)</span>
+      <div class="move-crosshair" id="move-hud">Footwork: CENTER (A/D: 회전)</div>
+      <div id="first-person-ring"></div>
+      <div class="hit-flash" id="hit-flash"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div>🥊 <b>양손 펀치</b>: 왼손 잽 / 오른손 스트레이트 | 🏃 <b>풋워크</b>: 몸 기울여 이동 | 🔄 <b>시점 회전</b>: 키보드 [A / D] 또는 [← / →]</div>
+    <div>Dual-Hands: <span style="color:#00ff66;">ENABLED (2 Hands)</span></div>
+  </footer>
+
+  <script>
+    const clientId = "{{ client_id }}";
+    const userColor = "{{ color }}";
+
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('cam-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const actionText = document.getElementById('action-text');
+    const speedText = document.getElementById('speed-text');
+    const fpsBadge = document.getElementById('fps-badge');
+    const myHpBadge = document.getElementById('my-hp-badge');
+    const hitFlash = document.getElementById('hit-flash');
+    const moveHud = document.getElementById('move-hud');
+
+    // --- 1. WebSocket 연동 ---
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/${clientId}`);
+
+    socket.onopen = () => console.log(`[✓] Connected as ${clientId}`);
+
+    // --- 2. 우측 1인칭 3D 복싱 링 씬 구축 ---
+    const ringContainer = document.getElementById('first-person-ring');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x080a10);
+    scene.fog = new THREE.FogExp2(0x080a10, 0.02);
+
+    const camera = new THREE.PerspectiveCamera(50, ringContainer.clientWidth / ringContainer.clientHeight, 0.1, 1000);
+    const cameraRig = new THREE.Group(); // 이동 및 회전을 담당하는 리그
+    cameraRig.position.set(0, 5, 14);
+    cameraRig.add(camera);
+    scene.add(cameraRig);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(ringContainer.clientWidth, ringContainer.clientHeight);
+    ringContainer.appendChild(renderer.domElement);
+
+    // 조명
+    scene.add(new THREE.AmbientLight(0x445577, 0.9));
+    const spot = new THREE.SpotLight(0xffffff, 1.6);
+    spot.position.set(0, 35, 0);
+    scene.add(spot);
+
+    // 링 바닥
+    const matMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.MeshStandardMaterial({ color: 0x121624, roughness: 0.8 })
+    );
+    matMesh.rotation.x = -Math.PI / 2;
+    scene.add(matMesh);
+
+    // 링 로프 기둥 4개
+    [[-18, -18], [18, -18], [18, 18], [-18, 18]].forEach(p => {
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5, 0.5, 12),
+        new THREE.MeshStandardMaterial({ color: 0xff3366 })
+      );
+      pole.position.set(p[0], 5, p[1]);
+      scene.add(pole);
+    });
+
+    // 내 양손 글러브 2개 (내 1인칭 시점 바로 앞)
+    const gloveMat = new THREE.MeshStandardMaterial({ color: userColor, emissive: userColor, emissiveIntensity: 0.4 });
+    const myLeftGlove = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gloveMat);
+    const myRightGlove = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gloveMat);
+    myLeftGlove.position.set(-1.8, -1.2, -3.5);
+    myRightGlove.position.set(1.8, -1.2, -3.5);
+    cameraRig.add(myLeftGlove);
+    cameraRig.add(myRightGlove);
+
+    // 상대방 아바타 3명 생성 (내 전방 시야에 배치)
+    const opponentConfigs = {
+      "client_1": { color: 0xff3366, name: "Red Boxer", pos: [-7, 0, -10] },
+      "client_2": { color: 0x00e5ff, name: "Cyan Boxer", pos: [7, 0, -10] },
+      "client_3": { color: 0xffd700, name: "Gold Mage", pos: [0, 0, -13] },
+      "client_4": { color: 0x00ff66, name: "Green Striker", pos: [-10, 0, -7] }
+    };
+
+    const opponentMeshes = {};
+
+    Object.keys(opponentConfigs).forEach(id => {
+      if (id === clientId) return;
+      const cfg = opponentConfigs[id];
+      const group = new THREE.Group();
+
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.0, 4.5, 8), new THREE.MeshStandardMaterial({ color: 0x222633 }));
+      body.position.y = 2.25;
+      group.add(body);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 16, 16), new THREE.MeshStandardMaterial({ color: cfg.color, metalness: 0.5 }));
+      head.position.y = 5.5;
+      group.add(head);
+
+      const gMat = new THREE.MeshStandardMaterial({ color: cfg.color, emissive: cfg.color, emissiveIntensity: 0.3 });
+      const lg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
+      const rg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
+      lg.position.set(-1.8, 3.2, 1.5);
+      rg.position.set(1.8, 3.2, 1.5);
+      group.add(lg); group.add(rg);
+
+      const shield = new THREE.Mesh(
+        new THREE.SphereGeometry(3.0, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: cfg.color, wireframe: true, transparent: true, opacity: 0 })
+      );
+      shield.rotation.x = Math.PI / 2;
+      shield.position.y = 3.5;
+      group.add(shield);
+
+      group.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
+      group.lookAt(0, 5, 14);
+      scene.add(group);
+      opponentMeshes[id] = { group, head, body, leftGlove: lg, rightGlove: rg, shield };
+    });
+
+    // --- 3. WebSocket 수신 및 동기화 ---
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.fighters && data.fighters[clientId]) {
+        const myHp = data.fighters[clientId].hp;
+        myHpBadge.innerText = `HP: ${myHp}`;
+        myHpBadge.style.color = myHp > 40 ? '#00ff66' : '#ff3366';
+      }
+
+      if (data.hits) {
+        data.hits.forEach(hit => {
+          if (hit.target_id === clientId) {
+            hitFlash.style.display = 'block';
+            setTimeout(() => { hitFlash.style.display = 'none'; }, 200);
+          }
+        });
+      }
+
+      const senderId = data.client_id;
+      if (senderId && senderId !== clientId && opponentMeshes[senderId]) {
+        const opp = opponentMeshes[senderId];
+        const action = data.action;
+
+        if (action === "JAB_STRAIGHT" || action === "RIGHT_CROSS") {
+          opp.rightGlove.position.z = 4.5;
+          setTimeout(() => { opp.rightGlove.position.z = 1.5; }, 180);
+        } else if (action === "LEFT_JAB" || action === "LEFT_HOOK") {
+          opp.leftGlove.position.z = 4.5;
+          setTimeout(() => { opp.leftGlove.position.z = 1.5; }, 180);
+        } else if (action === "DUAL_GUARD" || action === "TWO_HAND_GUARD") {
+          opp.shield.material.opacity = 0.8;
+          setTimeout(() => { opp.shield.material.opacity = 0; }, 300);
+        }
+      }
+    };
+
+    // --- 4. 키보드 시점 회전 및 이동 조작 (A/D or Arrow Keys) ---
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+    let rotationAngle = 0;
+
+    // --- 5. MediaPipe 양손 추적 & 펀치 타격 ---
+    let prevHands = {};
+    let punchTargetZL = -3.5, punchTargetZR = -3.5;
+
+    const hands = new Hands({
+      locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    let frameCount = 0, lastFpsTime = performance.now();
+
+    hands.onResults((res) => {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFpsTime >= 1000) {
+        fpsBadge.innerText = `${frameCount} FPS`;
+        frameCount = 0;
+        lastFpsTime = now;
+      }
+
+      canvasElement.width = videoElement.videoWidth || 640;
+      canvasElement.height = videoElement.videoHeight || 480;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(res.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      let detectedAction = "IDLE";
+      let maxVelocity = 0.0;
+      let centerHandX = 0.5, handCount = 0;
+
+      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        handCount = res.multiHandLandmarks.length;
+
+        for (let i = 0; i < handCount; i++) {
+          const lm = res.multiHandLandmarks[i];
+          const handedness = res.multiHandedness[i]?.label || (i === 0 ? "Right" : "Left");
+
+          drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, { color: handedness === "Left" ? "#00e5ff" : userColor, lineWidth: 3 });
+          drawLandmarks(canvasCtx, lm, { color: '#ffffff', fillColor: userColor, radius: 4 });
+
+          centerHandX += lm[0].x;
+
+          // 속도 계산
+          const p = prevHands[handedness] || { x: lm[8].x, y: lm[8].y, t: now };
+          const dt = Math.max((now - p.t) / 1000, 0.001);
+          const dist = Math.hypot(lm[8].x - p.x, lm[8].y - p.y);
+          const velKmH = (dist * 1.5 / dt) * 3.6;
+          prevHands[handedness] = { x: lm[8].x, y: lm[8].y, t: now };
+
+          if (velKmH > maxVelocity) maxVelocity = velKmH;
+
+          // 개별 글러브 3D 위치 (거울 모드에 맞춤)
+          // lm[8].x (0~1) -> 화면 오른쪽이 큰 x
+          if (handedness === "Left") {
+            myLeftGlove.position.x = (lm[8].x - 0.5) * 4.0 - 1.5;
+            myLeftGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
+            if (velKmH > 22.0) {
+              detectedAction = "LEFT_JAB";
+              punchTargetZL = -8.5; // 전방으로 돌진!
+            }
+          } else {
+            myRightGlove.position.x = (lm[8].x - 0.5) * 4.0 + 1.5;
+            myRightGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
+            if (velKmH > 22.0) {
+              detectedAction = "RIGHT_CROSS";
+              punchTargetZR = -8.5; // 전방으로 돌진!
+            }
+          }
+        }
+
+        centerHandX /= (handCount + 1);
+
+        // 더블 가드 판정
+        if (handCount >= 2) {
+          const l0 = res.multiHandLandmarks[0][0];
+          const l1 = res.multiHandLandmarks[1][0];
+          if (Math.hypot(l0.x - l1.x, l0.y - l1.y) < 0.25) {
+            detectedAction = "DUAL_GUARD";
+          }
+        }
+
+        // 상체 풋워크
+        const leanOffset = (centerHandX - 0.5) * 2;
+        if (Math.abs(leanOffset) > 0.25) {
+          cameraRig.position.x += leanOffset * 0.15;
+          moveHud.innerText = leanOffset > 0 ? "Footwork: STEP RIGHT" : "Footwork: STEP LEFT";
+        } else {
+          moveHud.innerText = "Footwork: CENTER (A/D: 회전, WASD: 이동)";
+        }
+
+        cameraRig.position.x = Math.max(-16, Math.min(16, cameraRig.position.x));
+        cameraRig.position.z = Math.max(-16, Math.min(16, cameraRig.position.z));
+
+        actionText.innerText = detectedAction;
+        speedText.innerText = maxVelocity.toFixed(1);
+        currentAction = detectedAction;
+        currentVelocity = maxVelocity;
+      } else {
+        actionText.innerText = "IDLE";
+        speedText.innerText = "0.0";
+        currentAction = "IDLE";
+        currentVelocity = 0.0;
+      }
+      canvasCtx.restore();
+    });
+
+    const cameraUtils = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 640, height: 480
+    });
+    cameraUtils.start();
+
+    // --- 6. 30 FPS 고정 네트워크 패킷 송신 루프 (손 인식과 무관하게 항상 이동 동기화) ---
+    const INIT_CAMERA_Z = 14;
+    let currentAction = "IDLE", currentVelocity = 0.0;
+
+    setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        // 상대 이동 오프셋 (Delta X, Delta Z)
+        const deltaX = cameraRig.position.x;
+        const deltaZ = cameraRig.position.z - INIT_CAMERA_Z;
+
+        socket.send(JSON.stringify({
+          action: currentAction,
+          velocity: currentVelocity,
+          pos_x: deltaX,
+          pos_z: deltaZ,
+          yaw: rotationAngle,
+          timestamp: performance.now()
+        }));
+      }
+    }, 33); // 30 FPS (33ms)
+
+    // 3D 렌더 및 시점 회전 루프
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      // 키보드 회전 & 이동 (WASD)
+      if (keys['a'] || keys['arrowleft']) {
+        rotationAngle += 0.04;
+        cameraRig.rotation.y = rotationAngle;
+      }
+      if (keys['d'] || keys['arrowright']) {
+        rotationAngle -= 0.04;
+        cameraRig.rotation.y = rotationAngle;
+      }
+      if (keys['w'] || keys['arrowup']) {
+        cameraRig.translateZ(-0.25);
+      }
+      if (keys['s'] || keys['arrowdown']) {
+        cameraRig.translateZ(0.25);
+      }
+
+      // 왼손 글러브 전방 타격 & 회수
+      if (punchTargetZL < -3.5) {
+        myLeftGlove.position.z = punchTargetZL;
+        punchTargetZL += 0.6;
+      } else {
+        myLeftGlove.position.z = -3.5;
+      }
+
+      // 오른손 글러브 전방 타격 & 회수
+      if (punchTargetZR < -3.5) {
+        myRightGlove.position.z = punchTargetZR;
+        punchTargetZR += 0.6;
+      } else {
+        myRightGlove.position.z = -3.5;
+      }
+
+      // 상대방 아바타 호흡 바운스
+      Object.keys(opponentMeshes).forEach(id => {
+        const opp = opponentMeshes[id];
+        opp.head.position.y = 5.5 + Math.sin(now * 0.005) * 0.1;
+      });
+
+      renderer.render(scene, camera);
+    }
+    animate(performance.now());
+
+    window.addEventListener('resize', () => {
+      camera.aspect = ringContainer.clientWidth / ringContainer.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(ringContainer.clientWidth, ringContainer.clientHeight);
+    });
+  </script>
+</body>
+</html>
