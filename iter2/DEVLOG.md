@@ -1,8 +1,63 @@
 # 🥊 Iter2 개발/변경 이력 (DEVLOG)
 
 > **프로젝트**: 4인 실시간 AR 섀도우 복싱 & 배틀 아레나
-> **최종 갱신**: 2026-08-24 (월) 15:45
+> **최종 갱신**: 2026-08-24 (월) 22:15
 > **작성 규칙**: 최신 변경이 위. 각 항목은 `날짜 — 변경 내용 / 이유 / 영향 범위` 형식.
+
+---
+
+## 2026-08-24 (월) — 야간 대규모 리팩터링
+
+### [22:15] 타격 사거리 현실화 튜닝
+- **원인**: 디버깅용으로 사거리를 25 units까지 늘렸더니 링 반대편에서도 주먹이 닿는 문제.
+- **해결**: 서버 로그에서 실제 전투 거리(6~10 units)를 확인 후 적절 값으로 조정.
+- **현재 값**:
+  - 잽/크로스/훅: **10 units** (가까이 다가가야 타격)
+  - 어퍼컷: **8 units** (더 근접 필요)
+  - 장풍(ENERGY_WAVE): **30 units** (원거리 스킬)
+  - dot threshold: 0.2~0.3 (약 ±72~78도)
+- 영향: `server/app.py` `process_attack()`
+
+### [22:00] 타격 판정 디버그 로그 추가 + 펀치 감지 완화
+- **서버 로그**: 공격 패킷 수신 시 `[RECV]`, 각 타겟별 거리/각도/OK/MISS `[ATK]`, 실제 HIT `[HIT]` 로그 출력. 쿨다운 차단도 `[ATK] BLOCKED` 로그.
+- **클라이언트 펀치 threshold**: 20 km/h → **12 km/h** (더 쉽게 펀치 감지)
+- **쿨다운**: 클라이언트 400ms → **350ms**, 서버 0.4s → **0.3s**
+- 영향: `server/app.py`, `fighter_client.html`
+
+### [21:30] Arena 아바타 이동 버그 원인 발견 — client_id 오타 방어
+- **원인**: 사용자가 URL에 `client?id=clinet_1` (오타)로 접속 → 서버의 `fighters` dict에 없는 키 → arena에서 `fighterMeshes["clinet_1"]` 미존재 → 패킷 무시 → 아바타 부동.
+- **해결**: 서버에서 유효하지 않은 client_id(`client_1`~`client_4` 외)로 접속 시 자동으로 `/client?id=client_1`로 리다이렉트.
+- **추가**: arena WebSocket에 `onopen`/`onerror`/`onclose` 핸들러 추가 → combat log에 연결 상태 표시.
+- 영향: `server/app.py`, `arena.html`
+
+### [21:00] Arena WebSocket 연결 디버그 + null guard 강화
+- arena `onmessage`에서 `data.client_id`가 없는 패킷(game_state 이벤트) 처리 시 `if (!cid) return;` 추가.
+- `data.action`이 undefined일 때 기본값 `"IDLE"` 적용.
+- yaw 보간에 각도 wrap-around 처리 추가 (`[-π, π]` 정규화).
+- 영향: `arena.html`
+
+### [20:30] fighter_client.html 전면 재작성 (FPS + 이동 버그 근본 해결)
+- **근본 원인 3가지 해결**:
+  1. **FPS 30 문제**: 두 개의 `requestAnimationFrame` 루프 (drawCamCanvas + animate)가 프레임을 분할 → **단일 rAF 루프로 통합**. 캔버스 드로잉은 50ms throttle (20fps).
+  2. **주먹만 이동, 본체 고정**: MediaPipe Pose가 실패 시 `poseDetected=true` 고정 → Hands lean 폴백 비활성화 → `leanX/Y=0` → 이동 없음. → **Pose 완전 제거**, Hands 손목 중점 lean만 사용하여 항상 이동 가능.
+  3. **앞/뒤 기울임 반전**: MediaPipe 좌표계에서 앞으로 숙이면 cy 증가 → leanY 부호 반전 필요. → `leanY = (cy - neutralY)` 로 수정.
+- **기타 변경**:
+  - WASD 키 제거, **화살표 키만** 유지 (`e.code` 기반: `ArrowUp/Down/Left/Right`)
+  - MediaPipe Hands 주기: 50ms(20fps) → **80ms(~12fps)** — GPU 부하 감소
+  - 글러브 SphereGeometry segments: 16 → **12** — 렌더 부하 감소
+  - 디버그 HUD: lean 값, calibration 상태, hands 감지 개수, neutral 값, 실제 moveXZ, rotation 모두 표시
+- 영향: `fighter_client.html` (전면 재작성)
+
+### [19:00] 서버 성능 최적화 (app.py)
+- **`enforce_collision()` 쓰로틀링**: 매 WebSocket 메시지(40+/sec)마다 실행하던 충돌 체크를 `time.monotonic()` 기반 **50ms 간격**(초당 20회)으로 제한. `enforce_collision_throttled()` 메서드 추가.
+- **불필요한 broadcast 스킵**: 위치(world_x/z/yaw를 round(2)로 비교)가 변경되지 않은 IDLE 패킷은 broadcast 하지 않음. 공격 패킷, hit 결과, collision correction은 무조건 broadcast.
+- **서버 초기 yaw 값 수정**: 클라이언트 `fighterStartConfigs`의 yaw와 일치하도록 수정 (`client_1: -1.5708` 등).
+- 영향: `server/app.py`
+
+### [18:30] Arena 뷰 FPS 개선 (arena.html)
+- **`playWhoosh()` AudioBuffer 캐시**: 매 호출마다 `createBuffer()`로 새 AudioBuffer를 생성하던 것을 `whooshBuffer` 변수에 캐시하여 재사용 (fighter_client과 동일 패턴). GC 부하 감소.
+- **Camera shake 드리프트 방지**: `controls.target`에 랜덤 변위를 누적하던 것을 `shakeDuration === 0` 시 `controls.target.set(0, 0, 0)`으로 원점 복귀. 장시간 플레이 시 카메라 중심점 드리프트 해소.
+- 영향: `arena.html`
 
 ---
 
@@ -93,6 +148,9 @@
 
 ## 🐞 알려진 이슈 / 주의
 
-- **디버그 로그**: `app.py`의 `process_attack`에 `[DEBUG]` print가 남아 있음. 발표 전 제거 권장.
+- **디버그 로그**: `app.py`의 `process_attack`에 `[ATK]`/`[HIT]`/`[RECV]` print가 남아 있음. 발표 전 제거 권장.
+- **arena console.log**: `arena.html`의 `[WS]` console.log 디버그 로그 잔존. 발표 전 제거 권장.
+- **client_id 오타 방어**: 서버에서 유효하지 않은 id를 `client_1`로 리다이렉트하지만, WebSocket 경로(`/ws/{client_id}`)는 방어 미적용. 직접 WebSocket URL을 잘못 입력하면 여전히 문제.
 - **합성 데이터 100% 정확도**: 이상적인 합성 데이터 기반 수치. 발표 시 "이상적 조건"임을 명시하거나 실웹캠 데이터 보완 필요.
+- **MediaPipe Pose 제거됨**: 현재 client는 Hands 손목 중점만으로 lean 감지. Pose 대비 정밀도가 낮지만 FPS 안정성이 크게 향상됨. 필요 시 Pose를 다시 추가하되 타임아웃 폴백 필수.
 - **humanoid 포즈**: 1차 튜닝값이라 어색할 수 있음. 브라우저에서 확인 후 `POSES` 조정.
