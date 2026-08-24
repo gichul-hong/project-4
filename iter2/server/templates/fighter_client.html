@@ -6,6 +6,7 @@
   <title>🥊 AR 양손 섀도우 복싱 & 풋워크 대전 컨트롤러</title>
   <!-- Three.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="/static/humanoid.js"></script>
   <!-- MediaPipe Hands & Camera Utils CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -311,41 +312,11 @@
       if (id === clientId) return; // 나 자신은 제외 (1인칭 내 시점)
 
       const cfg = allFighterWorldConfigs[id];
-      const group = new THREE.Group();
-
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.0, 4.5, 8), new THREE.MeshStandardMaterial({ color: 0x222633 }));
-      body.position.y = 2.25;
-      group.add(body);
-
-      const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 16, 16), new THREE.MeshStandardMaterial({ color: cfg.color, metalness: 0.5 }));
-      head.position.y = 5.5;
-      group.add(head);
-
-      // 정면 바이저
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.35, 0.5), new THREE.MeshBasicMaterial({ color: cfg.color }));
-      visor.position.set(0, 5.5, 1.1);
-      group.add(visor);
-
-      const gMat = new THREE.MeshStandardMaterial({ color: cfg.color, emissive: cfg.color, emissiveIntensity: 0.4 });
-      const lg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
-      const rg = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), gMat);
-      lg.position.set(-1.8, 3.2, 1.5);
-      rg.position.set(1.8, 3.2, 1.5);
-      group.add(lg); group.add(rg);
-
-      const shield = new THREE.Mesh(
-        new THREE.SphereGeometry(3.0, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: cfg.color, wireframe: true, transparent: true, opacity: 0 })
-      );
-      shield.rotation.x = Math.PI / 2;
-      shield.position.y = 3.5;
-      group.add(shield);
-
-      // 실제 월드 좌표 및 링 중앙 마주보기 각도 배치
-      group.position.set(cfg.pos[0], 0, cfg.pos[2]);
-      group.rotation.y = cfg.yaw;
-      scene.add(group);
-      opponentMeshes[id] = { group, head, body, leftGlove: lg, rightGlove: rg, shield };
+      const h = window.createHumanoid(cfg.color);
+      h.group.position.set(cfg.pos[0], 0, cfg.pos[2]);
+      h.group.rotation.y = cfg.yaw;
+      scene.add(h.group);
+      opponentMeshes[id] = h;
     });
 
     // --- 3. WebSocket 수신 및 동기화 ---
@@ -393,7 +364,7 @@
         const opp = opponentMeshes[senderId];
         const action = data.action;
 
-        // 상대방 실시간 이동 반영
+        // 상대방 실시간 이동 반영 (보간은 onmessage에서 단발 처리)
         if (data.world_x !== undefined && data.world_z !== undefined) {
           opp.group.position.x = THREE.MathUtils.lerp(opp.group.position.x, data.world_x, 0.6);
           opp.group.position.z = THREE.MathUtils.lerp(opp.group.position.z, data.world_z, 0.6);
@@ -402,16 +373,8 @@
           opp.group.rotation.y = THREE.MathUtils.lerp(opp.group.rotation.y, data.yaw + Math.PI, 0.6);
         }
 
-        if (action === "JAB_STRAIGHT" || action === "RIGHT_CROSS") {
-          opp.rightGlove.position.z = 4.5;
-          setTimeout(() => { opp.rightGlove.position.z = 1.5; }, 180);
-        } else if (action === "LEFT_JAB" || action === "LEFT_HOOK") {
-          opp.leftGlove.position.z = 4.5;
-          setTimeout(() => { opp.leftGlove.position.z = 1.5; }, 180);
-        } else if (action === "DUAL_GUARD" || action === "TWO_HAND_GUARD") {
-          opp.shield.material.opacity = 0.8;
-          setTimeout(() => { opp.shield.material.opacity = 0; }, 300);
-        }
+        // 관절형 휴머노이드 포즈 갱신 (펀치/가드 자동 보간)
+        opp.setAction(action);
       }
     };
 
@@ -610,10 +573,9 @@
         myRightGlove.position.z = -3.5;
       }
 
-      // 상대방 아바타 호흡 바운스
+      // 상대방 아바타 절차적 애니메이션 (호흡/보행/펀치/가드)
       Object.keys(opponentMeshes).forEach(id => {
-        const opp = opponentMeshes[id];
-        opp.head.position.y = 5.5 + Math.sin(now * 0.005) * 0.1;
+        opponentMeshes[id].update();
       });
 
       renderer.render(scene, camera);
