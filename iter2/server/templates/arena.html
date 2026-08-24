@@ -192,7 +192,7 @@
     <div style="display:flex; gap:16px;">
       <!-- Stats Summary Box -->
       <div class="system-stats">
-        <div>🥊 <b>Total Punches</b>: <span id="stat-punches" style="color:var(--cyan)">0</span> | <b>Hit Rate</b>: <span id="stat-hitrate" style="color:var(--green)">0%</span></div>
+        <div>🥊 <b>FPS</b>: <span id="stat-fps" style="color:#00ff66">--</span> | <b>Punches</b>: <span id="stat-punches" style="color:var(--cyan)">0</span> | <b>Hit Rate</b>: <span id="stat-hitrate" style="color:var(--green)">0%</span></div>
         <div>⚡ <b>Avg Speed</b>: <span id="stat-speed" style="color:#ffd700">0.0 km/h</span> | <b>GPU LSTM</b>: <span style="color:var(--green)">Active</span></div>
       </div>
       <!-- Mini Combat Log Box -->
@@ -211,15 +211,15 @@
     const container = document.getElementById('arena-canvas');
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07080d);
-    scene.fog = new THREE.FogExp2(0x07080d, 0.015);
+    scene.fog = new THREE.Fog(0x07080d, 60, 120);
 
     const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 35, 55);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(1);
+    renderer.shadowMap.enabled = false;
     container.appendChild(renderer.domElement);
 
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -232,7 +232,7 @@
     const ringLight = new THREE.SpotLight(0xffffff, 2.0);
     ringLight.position.set(0, 50, 0);
     ringLight.angle = Math.PI / 3;
-    ringLight.castShadow = true;
+    ringLight.castShadow = false;
     scene.add(ringLight);
 
     // 복싱 링 바닥 (Neon Mat)
@@ -240,7 +240,7 @@
     const matMat = new THREE.MeshStandardMaterial({ color: 0x111420, roughness: 0.8 });
     const ringMat = new THREE.Mesh(matGeo, matMat);
     ringMat.position.y = -1;
-    ringMat.receiveShadow = true;
+    ringMat.receiveShadow = false;
     scene.add(ringMat);
 
     // 링 로프 기둥 4개 & 네온 로프
@@ -293,13 +293,17 @@
         osc.start(t); osc.stop(t + 0.2);
       } catch(e) {}
     }
+    let whooshBuffer = null;
     function playWhoosh() {
       try {
         const c = ensureAudio(), t = c.currentTime;
-        const sr = c.sampleRate, buf = c.createBuffer(1, sr * 0.15, sr);
-        const data = buf.getChannelData(0);
-        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-        const src = c.createBufferSource(); src.buffer = buf;
+        if (!whooshBuffer) {
+          const sr = c.sampleRate;
+          whooshBuffer = c.createBuffer(1, sr * 0.15, sr);
+          const data = whooshBuffer.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        }
+        const src = c.createBufferSource(); src.buffer = whooshBuffer;
         const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1200;
         const g = c.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
         src.connect(bp).connect(g).connect(c.destination);
@@ -370,31 +374,34 @@
       });
     }
 
-    // 펀치 타격 광선 이펙트 (Punch Laser Beam)
+    // 펀치 타격 광선 이펙트 (Punch Laser Beam) — setInterval 대신 rAF 기반 감쇠
+    const activeTrails = [];
     function spawnPunchTrail(startPos, colorHex) {
       const dir = new THREE.Vector3(0, 4, 0).sub(startPos).normalize();
       const endPos = startPos.clone().addScaledVector(dir, 15);
       const geom = new THREE.BufferGeometry().setFromPoints([startPos, endPos]);
-      const mat = new THREE.LineBasicMaterial({ color: colorHex, linewidth: 3, transparent: true, opacity: 1.0 });
+      const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 1.0 });
       const line = new THREE.Line(geom, mat);
       scene.add(line);
-
-      let op = 1.0;
-      const fade = setInterval(() => {
-        op -= 0.15;
-        line.material.opacity = op;
-        if (op <= 0) {
-          clearInterval(fade);
-          scene.remove(line);
-        }
-      }, 30);
+      activeTrails.push({ line, life: 1.0 });
     }
 
     // --- 3. WebSocket 실시간 연동 ---
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws/host_arena`);
 
-    socket.onopen = () => console.log("[✓] Arena WebSocket connected");
+    socket.onopen = () => {
+      console.log("[✓] Arena WebSocket connected");
+      addCombatLog("<b style='color:#0f0'>WebSocket CONNECTED to server</b>");
+    };
+    socket.onerror = (e) => {
+      console.error("[✗] Arena WebSocket ERROR:", e);
+      addCombatLog("<b style='color:red'>WebSocket ERROR - 서버 연결 실패!</b>");
+    };
+    socket.onclose = (e) => {
+      console.warn("[✗] Arena WebSocket CLOSED:", e.code, e.reason);
+      addCombatLog(`<b style='color:red'>WebSocket CLOSED (${e.code})</b>`);
+    };
 
     let shakeDuration = 0;
     const keyboardState = {}; // WASD 키보드 입력 상태 (fighter_client 미러 방지)
@@ -405,23 +412,38 @@
       targetStates[cid] = { x: null, z: null, yaw: null, action: "IDLE" };
     });
 
+    // DOM 갱신 캐시 — 값이 실제로 바뀔 때만 innerText/style을 갱신해 리플로우 최소화
+    const domCache = {};
+    Object.keys(fighterConfigs).forEach(cid => { domCache[cid] = { hp: -1, action: "" }; });
+
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      // 1. 파이터 HP & 액션 UI 갱신
+      // 1. 파이터 HP, 위치 & 액션 UI 갱신 (서버 상태 동기화)
       if (data.fighters) {
         let aliveCount = 0;
         Object.keys(data.fighters).forEach(cid => {
           const f = data.fighters[cid];
-          const bar = document.getElementById(`hp-bar-${cid}`);
-          const text = document.getElementById(`hp-text-${cid}`);
-          const act = document.getElementById(`act-${cid}`);
-          if (bar && text && act) {
-            bar.style.width = `${f.hp}%`;
-            text.innerText = `${f.hp} HP`;
-            act.innerText = f.action;
+          const c = domCache[cid];
+          if (c && c.hp !== f.hp) {
+            c.hp = f.hp;
+            const bar = document.getElementById(`hp-bar-${cid}`);
+            const text = document.getElementById(`hp-text-${cid}`);
+            if (bar) bar.style.width = `${f.hp}%`;
+            if (text) text.innerText = `${f.hp} HP`;
           }
           if (f.hp > 0) aliveCount++;
+
+          // 서버 전체 파이터 위치 3D 동기화
+          if (targetStates[cid]) {
+            if (f.world_x !== undefined && f.world_z !== undefined) {
+              targetStates[cid].x = f.world_x;
+              targetStates[cid].z = f.world_z;
+            }
+            if (f.yaw !== undefined) {
+              targetStates[cid].yaw = f.yaw + Math.PI;
+            }
+          }
         });
 
         // 1명만 남았을 때 K.O. 승자 선언
@@ -432,25 +454,28 @@
       }
 
       const cid = data.client_id;
+      if (!cid) return;  // game_state 이벤트 등 client_id가 없는 패킷 무시
       const mesh = fighterMeshes[cid];
       if (!mesh) return;
 
-      const action = data.action;
+      const action = data.action || "IDLE";
 
       // 2. 목표 상태만 저장 (렌더 루프에서 부드럽게 보간)
       if (data.world_x !== undefined && data.world_z !== undefined) {
         targetStates[cid].x = data.world_x;
         targetStates[cid].z = data.world_z;
+        console.log(`[WS] ${cid} target -> (${data.world_x.toFixed(1)}, ${data.world_z.toFixed(1)}) mesh at (${mesh.group.position.x.toFixed(1)}, ${mesh.group.position.z.toFixed(1)})`);
       }
       if (data.yaw !== undefined) {
         targetStates[cid].yaw = data.yaw + Math.PI;
       }
       targetStates[cid].action = action;
 
-      // 상단 HUD에 액션 & 실시간 위치 표시
-      const actBadge = document.getElementById(`act-${cid}`);
-      if (actBadge) {
-        actBadge.innerText = `${action} (X:${mesh.group.position.x.toFixed(1)}, Z:${mesh.group.position.z.toFixed(1)})`;
+      // 액션 텍스트는 변경 시에만 갱신 (위치 텍스트는 렌더 루프로 이관)
+      if (domCache[cid].action !== action) {
+        domCache[cid].action = action;
+        const actEl = document.getElementById(`act-${cid}`);
+        if (actEl) actEl.innerText = action;
       }
 
       // 3. 양손 펀치 & 가드 3D 애니메이션 연출 (+z가 정면 링 중앙 방향)
@@ -501,45 +526,80 @@
     };
 
     // --- 4. 렌더 루프 ---
-    let frameCount = 0, lastTime = performance.now();
-    const baseCamPos = new THREE.Vector3(0, 35, 55);
+    let frameCount = 0, lastFpsTime = performance.now(), lastFrameTime = performance.now();
     const fpsEl = document.getElementById('stat-fps');
 
     function animate(now) {
       requestAnimationFrame(animate);
 
+      const dtSec = Math.min(Math.max((now - lastFrameTime) / 1000, 0.001), 0.1);
+      lastFrameTime = now;
+
       // FPS 측정
       frameCount++;
-      if (now - lastTime >= 1000) {
+      if (now - lastFpsTime >= 1000) {
         if (fpsEl) fpsEl.innerText = frameCount;
         frameCount = 0;
-        lastTime = now;
+        lastFpsTime = now;
       }
 
-      // 목표 상태로부터 60FPS 보간 (onmessage에서 직접 안 움직이므로 부드러움 보장)
+      // 목표 상태로부터 프레임레이트 무관 보간 (지수 스무딩: 반응성 일정)
+      const smooth = 1 - Math.exp(-dtSec * 14);
+      let debugTxt = '';
       Object.keys(fighterMeshes).forEach(cid => {
         const f = fighterMeshes[cid];
         const t = targetStates[cid];
         if (t.x !== null && t.z !== null) {
-          f.group.position.x = THREE.MathUtils.lerp(f.group.position.x, t.x, 0.18);
-          f.group.position.z = THREE.MathUtils.lerp(f.group.position.z, t.z, 0.18);
+          f.group.position.x += (t.x - f.group.position.x) * smooth;
+          f.group.position.z += (t.z - f.group.position.z) * smooth;
         }
         if (t.yaw !== null) {
-          f.group.rotation.y = THREE.MathUtils.lerp(f.group.rotation.y, t.yaw, 0.18);
+          // yaw 보간 시 각도 wrap-around 처리
+          let dy = t.yaw - f.group.rotation.y;
+          while (dy > Math.PI) dy -= 2*Math.PI;
+          while (dy < -Math.PI) dy += 2*Math.PI;
+          f.group.rotation.y += dy * smooth;
         }
         f.update();
+        debugTxt += `${cid.slice(-1)}: tgt(${t.x !== null ? t.x.toFixed(1) : '-'},${t.z !== null ? t.z.toFixed(1) : '-'}) pos(${f.group.position.x.toFixed(1)},${f.group.position.z.toFixed(1)}) | `;
       });
+      // 디버그: 좌측 하단 stat에 위치 표시
+      if (frameCount === 1) {
+        const dbg = document.getElementById('combat-log-box');
+        if (dbg) {
+          const row = document.createElement('div');
+          row.style.color = '#0f0';
+          row.textContent = debugTxt;
+          dbg.prepend(row);
+          while (dbg.children.length > 8) dbg.removeChild(dbg.lastChild);
+        }
+      }
 
-      // 화면 흔들림 (Camera Shake) — OrbitControls와 충돌하지 않도록 controls.target에 오프셋
+      // 펀치 트레일 감쇠 (setInterval → rAF)
+      for (let i = activeTrails.length - 1; i >= 0; i--) {
+        const t = activeTrails[i];
+        t.life -= dtSec * 5;
+        t.line.material.opacity = t.life;
+        if (t.life <= 0) {
+          scene.remove(t.line);
+          t.line.geometry.dispose();
+          t.line.material.dispose();
+          activeTrails.splice(i, 1);
+        }
+      }
+
+      // 화면 흔들림 — OrbitControls.target을 일시 변위 후 원점 복귀
       controls.update();
       if (shakeDuration > 0) {
-        const sx = (Math.random() - 0.5) * 2.0;
-        const sy = (Math.random() - 0.5) * 2.0;
-        const sz = (Math.random() - 0.5) * 2.0;
-        camera.position.x += sx;
-        camera.position.y += sy;
-        camera.position.z += sz;
+        const shakeX = (Math.random() - 0.5) * 1.8;
+        const shakeZ = (Math.random() - 0.5) * 1.8;
+        controls.target.x += shakeX;
+        controls.target.z += shakeZ;
+        // 다음 프레임에서 복귀되도록 예약 (누적 드리프트 방지)
         shakeDuration--;
+        if (shakeDuration === 0) {
+          controls.target.set(0, 0, 0);
+        }
       }
 
       renderer.render(scene, camera);
