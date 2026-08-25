@@ -58,6 +58,10 @@ class ArenaGameManager:
                 a, b = ids[i], ids[j]
                 fa = self.fighters[a]
                 fb = self.fighters[b]
+                # KO된 파이터는 링에서 사라지므로 콜라이더에서도 빠진다.
+                # 그러지 않으면 보이지 않는 벽이 남아 살아있는 파이터가 막힌다.
+                if fa.get("hp", 0) <= 0 or fb.get("hp", 0) <= 0:
+                    continue
                 ax, az = fa.get("world_x", fa.get("pos", [0, 0, 0])[0]), fa.get("world_z", fa.get("pos", [0, 0, 0])[2])
                 bx, bz = fb.get("world_x", fb.get("pos", [0, 0, 0])[0]), fb.get("world_z", fb.get("pos", [0, 0, 0])[2])
                 dx, dz = ax - bx, az - bz
@@ -144,15 +148,19 @@ class ArenaGameManager:
             return None
 
         # (데미지, 최대사거리, dot 임계값)
+        #
+        # HP 100 기준 "최소 10대는 버틴다"를 만족하도록 잡은 값이다.
+        # 속도 보너스까지 최대로 받은 어퍼컷(가장 센 기술)이 정확히 10, 즉 10대가 상한이고
+        # 실제 대전에서 흔한 잽/스트레이트 위주면 15~20대가 오간다.
         attack_specs = {
-            "JAB_STRAIGHT":    (12, 10.0, 0.3),
-            "LEFT_JAB":        (12, 10.0, 0.3),
-            "RIGHT_CROSS":     (16, 10.0, 0.3),
-            "LEFT_HOOK":       (18, 10.0, 0.2),
-            "RIGHT_HOOK":      (18, 10.0, 0.2),
-            "LEFT_UPPERCUT":   (25,  8.0, 0.3),
-            "RIGHT_UPPERCUT":  (25,  8.0, 0.3),
-            "ENERGY_WAVE":     (40, 30.0, 0.3),
+            "JAB_STRAIGHT":    (5, 10.0, 0.3),
+            "LEFT_JAB":        (5, 10.0, 0.3),
+            "RIGHT_CROSS":     (6, 10.0, 0.3),
+            "LEFT_HOOK":       (7, 10.0, 0.2),
+            "RIGHT_HOOK":      (7, 10.0, 0.2),
+            "LEFT_UPPERCUT":   (8,  8.0, 0.3),
+            "RIGHT_UPPERCUT":  (8,  8.0, 0.3),
+            "ENERGY_WAVE":     (12, 30.0, 0.3),
         }
         spec = attack_specs.get(action)
         if not spec:
@@ -167,7 +175,8 @@ class ArenaGameManager:
             return None
         self.last_attack_times[attacker_id] = now
 
-        dmg = int(raw_dmg * (1.0 + min(velocity, 50.0) / 100.0))
+        # 속도 보너스 최대 +25% (이전 +50%). 빠른 펀치의 이점은 남기되 즉사 구간을 없앤다.
+        dmg = max(1, int(raw_dmg * (1.0 + min(velocity, 50.0) / 200.0)))
 
         att_x = attacker.get("world_x", attacker.get("pos", [0, 0, 0])[0])
         att_z = attacker.get("world_z", attacker.get("pos", [0, 0, 0])[2])
@@ -212,7 +221,8 @@ class ArenaGameManager:
                 "damage": actual_dmg,
                 "is_guard": is_guard,
                 "target_hp": fighter["hp"],
-                "distance": round(hit_dist, 1)
+                "distance": round(hit_dist, 1),
+                "ko": fighter["hp"] <= 0,
             })
             print(f"[HIT] {attacker_id}->{best_target_id} dmg={actual_dmg} hp={fighter['hp']}", flush=True)
             if fighter["hp"] == 0:

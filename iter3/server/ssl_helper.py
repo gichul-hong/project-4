@@ -6,6 +6,18 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 import ipaddress
+import socket
+
+def _local_ips():
+    """이 PC의 LAN IP를 SAN에 포함시켜 다른 랩탑이 IP로 접속해도 인증서가 맞게 한다."""
+    ips = {"127.0.0.1"}
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ips.add(s.getsockname()[0])
+    except OSError:
+        pass
+    return sorted(ips)
 
 def generate_self_signed_cert(cert_dir):
     """로컬 IP 웹캠 보안 정책(HTTPS)을 위한 1회용 자체 서명 SSL 인증서 생성"""
@@ -43,8 +55,7 @@ def generate_self_signed_cert(cert_dir):
     ).add_extension(
         x509.SubjectAlternativeName([
             x509.DNSName("localhost"),
-            x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-            x509.IPAddress(ipaddress.IPv4Address("147.47.201.63")),
+            *[x509.IPAddress(ipaddress.IPv4Address(ip)) for ip in _local_ips()],
         ]),
         critical=False,
     ).sign(key, hashes.SHA256())

@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A5%8A%3C/text%3E%3C/svg%3E">
   <title>🥊 4-Player AR Shadow Boxing & Battle Arena (Host View)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
-  <script src="/static/humanoid.js?v=3"></script>
+  <script src="/static/humanoid.js?v=4"></script>
+  <script src="/static/effects.js?v=2"></script>
   <style>
     :root {
       --bg: #07080d;
@@ -55,6 +57,17 @@
       transition: all 0.2s;
     }
     .fighter-card.active { border-color: var(--f-color); }
+    /* K.O. — 링에서 사라진 파이터는 카드도 죽은 상태로 표시 */
+    .fighter-card.ko {
+      opacity: 0.4;
+      filter: grayscale(1);
+      border-color: rgba(255,255,255,0.08);
+    }
+    .fighter-card.ko .fighter-head::after {
+      content: " K.O.";
+      color: #ff3366;
+      font-weight: 900;
+    }
     .fighter-head {
       display: flex;
       justify-content: space-between;
@@ -175,7 +188,7 @@
   <!-- Center Round Match Clock & Combat Banner -->
   <div style="position:absolute; top:85px; left:50%; transform:translateX(-50%); z-index:10; display:flex; flex-direction:column; align-items:center; gap:8px;">
     <div style="background:rgba(0,0,0,0.75); border:1px solid rgba(255,255,255,0.2); padding:4px 18px; border-radius:20px; font-family:var(--mono); font-size:18px; font-weight:800; color:#ffd700;">
-      ⏱️ ROUND 1 : <span id="round-clock">60</span>s
+      ⏱️ LAST MAN STANDING &nbsp;|&nbsp; <span id="round-clock">0:00</span>
     </div>
     <div class="hit-banner" id="hit-banner" style="position:static; transform:none;">💥 CRITICAL HIT! -25 HP</div>
   </div>
@@ -303,6 +316,8 @@
     };
 
     const fighterMeshes = {}; // { client_id: humanoid }
+    const fx = window.createHitEffects(scene);   // 타격/K.O. 이펙트
+    const koState = {};                          // { client_id: true } — 이미 K.O. 연출을 재생했는지
 
     Object.keys(fighterConfigs).forEach(cid => {
       const cfg = fighterConfigs[cid];
@@ -362,24 +377,25 @@
     }
 
     // --- 경기 타이머 및 통계 관리 ---
-    let matchTimeLeft = 60;
+    // 제한 시간 없음 — 마지막 1인이 남을 때까지 싸운다.
+    // 시계는 경과 시간만 세고 경기를 끝내지 않는다 (판정승 제거).
+    let matchElapsed = 0;
     let matchTimer = null;
+    let matchOver = false;
     const matchStats = { punches: 0, hits: 0, speeds: [] };
+
+    function renderClock() {
+      const m = Math.floor(matchElapsed / 60), sec = matchElapsed % 60;
+      document.getElementById('round-clock').innerText = `${m}:${String(sec).padStart(2, '0')}`;
+    }
 
     function startMatchClock(playAudio = false) {
       if (matchTimer) clearInterval(matchTimer);
-      matchTimeLeft = 60;
-      document.getElementById('round-clock').innerText = matchTimeLeft;
+      matchElapsed = 0;
+      matchOver = false;
+      renderClock();
       if (playAudio) playBell();
-
-      matchTimer = setInterval(() => {
-        matchTimeLeft--;
-        document.getElementById('round-clock').innerText = matchTimeLeft;
-        if (matchTimeLeft <= 0) {
-          clearInterval(matchTimer);
-          declareWinner("TIME OVER (판정승)");
-        }
-      }, 1000);
+      matchTimer = setInterval(() => { matchElapsed++; renderClock(); }, 1000);
     }
     startMatchClock(false);
 
@@ -392,23 +408,40 @@
       while (box.children.length > 20) box.removeChild(box.lastChild);
     }
 
-    function declareWinner(reason) {
+    function declareWinner(reason, winnerId) {
       playBell();
-      let bestFighter = "Red Boxer", maxHp = -1;
-      Object.keys(fighterConfigs).forEach(cid => {
-        const text = document.getElementById(`hp-text-${cid}`);
-        const hp = parseInt(text ? text.innerText : "0") || 0;
-        if (hp > maxHp) { maxHp = hp; bestFighter = fighterConfigs[cid].name || cid; }
-      });
+      let bestFighter, maxHp = -1;
+      if (winnerId && fighterConfigs[winnerId]) {
+        bestFighter = fighterConfigs[winnerId].name || winnerId;
+        const text = document.getElementById(`hp-text-${winnerId}`);
+        maxHp = parseInt(text ? text.innerText : "0") || 0;
+      } else {
+        // 생존자를 못 받은 경우에만 HP 최대값으로 보조 판정
+        bestFighter = "Red Boxer";
+        Object.keys(fighterConfigs).forEach(cid => {
+          const text = document.getElementById(`hp-text-${cid}`);
+          const hp = parseInt(text ? text.innerText : "0") || 0;
+          if (hp > maxHp) { maxHp = hp; bestFighter = fighterConfigs[cid].name || cid; }
+        });
+      }
 
+      const m = Math.floor(matchElapsed / 60), sec = matchElapsed % 60;
       document.getElementById('result-winner-title').innerText = `🏆 ${bestFighter} 승리!`;
-      document.getElementById('result-sub').innerText = `${reason} (남은 체력: ${maxHp} HP)`;
+      document.getElementById('result-sub').innerText =
+        `${reason} (남은 체력: ${maxHp} HP · 경기 시간 ${m}:${String(sec).padStart(2, '0')})`;
       document.getElementById('result-modal').style.display = 'flex';
     }
 
     function resetRoundMatch() {
       document.getElementById('result-modal').style.display = 'none';
       fetch('/api/reset-game').then(() => {
+        fx.clear();
+        Object.keys(fighterMeshes).forEach(cid => {
+          fighterMeshes[cid].setDown(false);
+          koState[cid] = false;
+          const card = document.getElementById(`card-${cid}`);
+          if (card) card.classList.remove('ko');
+        });
         startMatchClock();
         addCombatLog("<b style='color:#00ff66'>새 라운드가 시작되었습니다! (HP 100 리셋)</b>");
       });
@@ -466,7 +499,7 @@
       document.body.appendChild(ov);
     }
 
-    let shakeDuration = 0;
+    let shakeDuration = 0, shakeMag = 1.8;
     const keyboardState = {}; // WASD 키보드 입력 상태 (fighter_client 미러 방지)
 
     // 목표 위치 버퍼 (onmessage에서 저장 → animate에서 보간)
@@ -503,6 +536,25 @@
           }
           if (f.hp > 0) aliveCount++;
 
+          // K.O. — 링에서 넘어지며 사라진다. setDown은 멱등하므로 매 패킷 호출해도 된다.
+          const koMesh = fighterMeshes[cid];
+          const isKO = f.hp <= 0;
+          if (koMesh) koMesh.setDown(isKO);
+          const card = document.getElementById(`card-${cid}`);
+          if (card) card.classList.toggle('ko', isKO);
+          // K.O. 연출은 쓰러지는 순간 한 번만 재생 (매 패킷 재생 방지)
+          if (isKO && !koState[cid]) {
+            koState[cid] = true;
+            if (koMesh) {
+              const kp = koMesh.group.position;
+              fx.spawnKO(new THREE.Vector3(kp.x, 5.2, kp.z), fighterConfigs[cid].color);
+            }
+            playBell();
+            addCombatLog(`<b style="color:#ff3366">☠️ ${fighterConfigs[cid].name} K.O.! 링에서 이탈</b>`);
+          } else if (!isKO && koState[cid]) {
+            koState[cid] = false;   // 라운드 리셋으로 부활
+          }
+
           // 서버 전체 파이터 위치 3D 동기화
           if (targetStates[cid]) {
             if (f.world_x !== undefined && f.world_z !== undefined) {
@@ -515,10 +567,13 @@
           }
         });
 
-        // 1명만 남았을 때 K.O. 승자 선언
-        if (aliveCount === 1 && matchTimeLeft > 0 && matchTimeLeft < 58) {
+        // 마지막 1인이 남으면 승자 선언. 시간 제한이 없으므로 이것이 유일한 종료 조건이다.
+        // 시작 시점에는 4명 전원이 살아 있어 aliveCount === 1 이 될 수 없으므로 별도 가드가 필요 없다.
+        if (aliveCount === 1 && !matchOver) {
+          matchOver = true;
           clearInterval(matchTimer);
-          declareWinner("K.O. PERFECT FINISH!");
+          const survivor = Object.keys(data.fighters).find(id => data.fighters[id].hp > 0);
+          declareWinner("K.O. LAST MAN STANDING", survivor);
         }
       }
 
@@ -566,8 +621,19 @@
       // 4. 타격 피격 & 화면 흔들림(Camera Shake) & 사운드
       if (data.hits && data.hits.length > 0) {
         const hit = data.hits[0];
-        shakeDuration = 14;
+        // 흔들림 세기를 데미지에 비례시킨다 — 가드로 막힌 타격은 거의 흔들리지 않는다
+        shakeDuration = hit.is_guard ? 5 : Math.min(20, 8 + hit.damage);
+        shakeMag = hit.is_guard ? 0.6 : Math.min(2.6, 0.9 + hit.damage * 0.15);
         matchStats.hits++;
+
+        // 피격자 위치에 타격 이펙트 + 아바타 움찔 리액션
+        const tgt = fighterMeshes[hit.target_id];
+        if (tgt) {
+          const tp = tgt.group.position;
+          const atkColor = (fighterConfigs[hit.attacker_id] || {}).color || 0xffffff;
+          fx.spawnHit(new THREE.Vector3(tp.x, 4.6, tp.z), atkColor, hit.damage, hit.is_guard);
+          if (!hit.is_guard) tgt.hit(hit.damage);
+        }
         if (data.velocity) matchStats.speeds.push(data.velocity);
 
         // 통계 UI 갱신
@@ -644,6 +710,9 @@
         }
       }
 
+      // 타격/K.O. 이펙트 갱신
+      fx.update(dtSec);
+
       // 펀치 트레일 감쇠 (setInterval → rAF)
       for (let i = activeTrails.length - 1; i >= 0; i--) {
         const t = activeTrails[i];
@@ -660,8 +729,8 @@
       // 화면 흔들림 — OrbitControls.target을 일시 변위 후 원점 복귀
       controls.update();
       if (shakeDuration > 0) {
-        const shakeX = (Math.random() - 0.5) * 1.8;
-        const shakeZ = (Math.random() - 0.5) * 1.8;
+        const shakeX = (Math.random() - 0.5) * shakeMag;
+        const shakeZ = (Math.random() - 0.5) * shakeMag;
         controls.target.x += shakeX;
         controls.target.z += shakeZ;
         // 다음 프레임에서 복귀되도록 예약 (누적 드리프트 방지)

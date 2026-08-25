@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A5%8A%3C/text%3E%3C/svg%3E">
   <title>AR Boxing Controller</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
-  <script src="/static/humanoid.js?v=3"></script>
+  <script src="/static/humanoid.js?v=4"></script>
+  <script src="/static/effects.js?v=2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -25,7 +27,18 @@
     #first-person-ring { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
     .action-hud { position: absolute; bottom: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.85); border: 1px solid var(--f-color); border-radius: 6px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 12px; z-index: 5; }
     .act-title { font-size: 16px; font-weight: 900; color: var(--f-color); }
-    .hit-flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,51,102,0.4); pointer-events: none; display: none; z-index: 10; }
+    .hit-flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(255,51,102,0) 30%, rgba(255,51,102,0.55) 72%, rgba(255,20,80,0.95) 100%); }
+    /* K.O. — 내가 쓰러졌을 때 1인칭 화면을 덮는 관전 안내 */
+    .ko-overlay { position: absolute; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(6,8,14,0.82); backdrop-filter: blur(6px); text-align: center; font-family: var(--mono); }
+    .ko-overlay b { font-size: 40px; font-weight: 900; color: #ff3366; text-shadow: 0 0 22px rgba(255,51,102,0.7); letter-spacing: 4px; }
+    .ko-overlay span { margin-top: 10px; font-size: 12px; color: #aaa; }
+    /* 렌더 루프 예외 배너 — animate()가 죽으면 1인칭 화면이 통째로 안 그려지는데,
+       콘솔을 안 보면 원인을 알 수 없다. 화면에 바로 띄운다. */
+    .anim-error { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 30; display: none;
+      background: rgba(120,0,20,0.94); border: 1px solid #ff3366; border-radius: 6px; padding: 8px 12px;
+      font-family: var(--mono); font-size: 11px; color: #ffd7e0; white-space: pre-wrap; }
     .move-hud { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 4px 10px; font-family: var(--mono); font-size: 10px; color: #aaa; z-index: 5; white-space: pre-line; }
     footer { padding: 6px 16px; background: rgba(18,22,34,0.9); border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; font-size: 11px; color: #888; font-family: var(--mono); }
   </style>
@@ -51,6 +64,11 @@
       <div class="move-hud" id="move-hud">--</div>
       <div id="first-person-ring"></div>
       <div class="hit-flash" id="hit-flash"></div>
+      <div class="anim-error" id="anim-error"></div>
+      <div class="ko-overlay" id="ko-overlay">
+        <b>K.O.</b>
+        <span>링에서 이탈했습니다 — 관전 모드<br>Host 화면에서 새 라운드를 시작하면 복귀합니다</span>
+      </div>
     </div>
   </div>
   <footer>
@@ -70,6 +88,7 @@
     const fpsBadge = document.getElementById('fps-badge');
     const myHpBadge = document.getElementById('my-hp-badge');
     const hitFlash = document.getElementById('hit-flash');
+    const koOverlay = document.getElementById('ko-overlay');
     const moveHud = document.getElementById('move-hud');
     const debugInfo = document.getElementById('debug-info');
 
@@ -214,7 +233,72 @@
     let playerX = myStart.x;
     let playerZ = myStart.z;
     let rotationAngle = myStart.yaw;
+    // 상대 위치는 스폰 좌표로 미리 채운다.
+    //
+    // 예전에는 상대가 패킷을 보내야만 이 표가 채워졌다. 그런데 서버는 접속 여부와 상관없이
+    // 4명 전원을 fighters 상태로 들고 있고 타격 판정도 전원에게 한다. 그래서 혼자 접속해
+    // 테스트하면 "링에는 아바타가 보이는데 자동 조준은 대상이 없다고 판단"하는 상태가 됐다.
+    // 클라이언트가 아는 타깃 목록을 서버와 일치시킨다.
     const opponentPositions = {};
+    Object.keys(opponentMeshes).forEach(id => {
+      const cfg = worldConfigs[id];
+      opponentPositions[id] = { x: cfg.pos[0], z: cfg.pos[2], yaw: cfg.yaw };
+    });
+
+    // 타격/K.O. 이펙트 (host 관제뷰와 같은 연출 — static/effects.js)
+    // 이름 주의: animate() 안에 정면 벡터 `fx`가 이미 있다. 같은 이름을 쓰면 그쪽이 이걸 가려
+    // `fx.update is not a function` 으로 매 프레임 죽는다 (1인칭 화면이 통째로 안 그려짐).
+    const hitFx = window.createHitEffects(scene);
+    let hurtFlash = 0;              // 피격 비네트 세기 0..1 (시간 감쇠)
+    let shakeT = 0, shakeMag = 0;   // 피격 카메라 흔들림
+
+    const oppHp = {};               // { client_id: hp } — K.O.된 상대는 조준·접근 대상에서 뺀다
+    Object.keys(opponentMeshes).forEach(id => { oppHp[id] = 100; });
+    let myHp = 100;
+
+    // ========== 자동 조준 (Auto-Aim) ==========
+    // 서버 타격 판정은 "내 시선 방향 · 상대 방향"의 dot에 의존한다. 즉 조준이 곧 명중률이다.
+    // 그런데 웹캠 회전 제스처는 1회당 45°가 상한이라 옆에 선 상대를 겨누려면 제스처를 두세 번
+    // 끊어 쳐야 한다. 실제로는 그 사이에 펀치가 나가서 허공을 친다. 그래서 두 단계로 자동화한다.
+    //   (1) 상시 정렬 — 수동 입력이 없을 때 가장 가까운 상대 쪽으로 서서히 돈다
+    //   (2) 펀치 스냅 — 펀치가 나가는 순간 사거리 안의 상대에게 즉시 정렬한다
+    const AIM_SNAP_RANGE    = 11.0;                 // 스냅 사거리 (서버 최대 사거리 10보다 살짝 넓게)
+    const AIM_SNAP_MAX_TURN = 120 * Math.PI / 180;  // 한 번의 스냅으로 돌 수 있는 최대 각 (등 뒤는 포기)
+    const AIM_MANUAL_HOLD   = 500;                  // 수동 회전 직후 상시 정렬을 쉬는 시간(ms)
+    const AIM_RATE_FAR = 3.0, AIM_RATE_ENGAGED = 8.0;   // 상시 정렬 속도 (1/s)
+
+    const angleWrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+
+    /** 살아있는 상대 중 가장 가까운 하나. 없으면 null. */
+    function findNearestOpponent() {
+      let best = null;
+      Object.keys(opponentPositions).forEach(id => {
+        const t = opponentPositions[id];
+        if (!t) return;
+        if ((oppHp[id] !== undefined ? oppHp[id] : 100) <= 0) return;   // K.O.된 상대는 제외
+        const dx = t.x - playerX, dz = t.z - playerZ;
+        const dist = Math.hypot(dx, dz);
+        // 정면 벡터가 (-sin yaw, -cos yaw)이므로 그 방향을 만드는 yaw는 atan2(-dx, -dz)
+        if (!best || dist < best.dist) best = { id, dist, dx, dz, angle: Math.atan2(-dx, -dz) };
+      });
+      return best;
+    }
+
+    /**
+     * 펀치 순간 조준 스냅.
+     * 펀치 패킷은 호출 시점의 rotationAngle을 그대로 실어 보내고 서버는 그 값으로 명중을 판정한다.
+     * 따라서 스냅은 반드시 sendCombatPacket "이전"에 끝나야 한다.
+     * 뒤에 돌리면 화면만 돌아가고 판정은 이미 빗나간 뒤다.
+     */
+    function snapAimForPunch() {
+      const t = findNearestOpponent();
+      if (!t || t.dist > AIM_SNAP_RANGE) return null;
+      const diff = angleWrap(t.angle - rotationAngle);
+      if (Math.abs(diff) > AIM_SNAP_MAX_TURN) return null;
+      rotationAngle = angleWrap(rotationAngle + diff);
+      rotAnchor = null;   // 제스처 회전 앵커를 풀어야 스냅한 방향이 45° 제한에 되감기지 않는다
+      return t;
+    }
 
     cameraRig.position.set(playerX, 5, playerZ);
     cameraRig.rotation.y = rotationAngle;
@@ -245,23 +329,51 @@
       if (data.fighters) {
         const me = data.fighters[clientId];
         if (me) {
+          myHp = me.hp;
           myHpBadge.innerText = `HP: ${me.hp}`;
           myHpBadge.style.color = me.hp > 40 ? '#00ff66' : '#ff3366';
           if (me.world_x !== undefined) playerX = me.world_x;
           if (me.world_z !== undefined) playerZ = me.world_z;
+          koOverlay.style.display = me.hp <= 0 ? 'flex' : 'none';
         }
+        // 상대 HP — K.O.된 상대는 링에서 넘어져 사라지고, 조준·자동접근 대상에서도 빠진다.
+        // setDown은 멱등하므로 매 패킷 호출해도 된다(내부에서 진행도만 목표치로 수렴시킨다).
+        Object.keys(opponentMeshes).forEach(id => {
+          const f = data.fighters[id];
+          if (!f) return;
+          oppHp[id] = f.hp;
+          opponentMeshes[id].setDown(f.hp <= 0);
+          // 위치도 서버 권한 상태에서 갱신 — 상대가 직접 패킷을 보내지 않아도 좌표가 최신이 된다
+          if (f.world_x !== undefined && f.world_z !== undefined) {
+            const t = opponentPositions[id] || (opponentPositions[id] = {});
+            t.x = f.world_x; t.z = f.world_z;
+            if (f.yaw !== undefined) t.yaw = f.yaw + Math.PI;
+          }
+        });
       }
 
       // 타격
       if (data.hits && data.hits.length > 0) {
         data.hits.forEach(hit => {
+          // 상대가 맞았다면 그 자리에 3D 타격 이펙트 + 아바타 움찔 리액션
+          const tgtMesh = opponentMeshes[hit.target_id];
+          if (tgtMesh) {
+            const tp = tgtMesh.group.position;
+            const atkColor = (worldConfigs[hit.attacker_id] || {}).color || 0xffffff;
+            hitFx.spawnHit(new THREE.Vector3(tp.x, 4.6, tp.z), atkColor, hit.damage, hit.is_guard);
+            if (!hit.is_guard) tgtMesh.hit(hit.damage);
+            if (hit.ko) hitFx.spawnKO(new THREE.Vector3(tp.x, 5.2, tp.z), atkColor);
+          }
           if (hit.attacker_id === clientId) {
             actionText.innerHTML = `<span style="color:#00ff66">HIT! -${hit.damage} HP</span>`;
             playThud(140);
           }
           if (hit.target_id === clientId) {
-            hitFlash.style.display = 'block';
-            setTimeout(() => { hitFlash.style.display = 'none'; }, 200);
+            // 내가 맞음 — 비네트 세기와 카메라 흔들림을 데미지에 비례시킨다.
+            // 가드로 막았으면 거의 흔들리지 않아 "막았다"가 몸으로 읽힌다.
+            hurtFlash = Math.min(1, (hit.is_guard ? 0.20 : 0.45) + hit.damage / 14);
+            shakeT    = hit.is_guard ? 0.18 : 0.38;
+            shakeMag  = hit.is_guard ? 0.25 : Math.min(1.5, 0.40 + hit.damage * 0.11);
             playThud(90);
           }
         });
@@ -318,7 +430,14 @@
       // 펀치 잠금 — 이 시간 동안 이동·회전을 모두 정지하고 자세 신호도 갱신하지 않는다.
       // 펀치는 몸통 회전(투영 어깨폭 축소)과 주먹 이동을 동반해 roll/pitch/shift를 크게 흔들기 때문에,
       // 적용만 막고 신호를 계속 적분하면 잠금이 풀리는 순간 엉뚱한 방향으로 튀어나간다.
-      PUNCH_LOCK: 480,         // 최소 잠금 시간
+      PUNCH_LOCK: 180,         // 최소 잠금 시간
+      //
+      // 480 -> 180. 480ms는 "팔이 오염을 일으키는 구간"보다 훨씬 길었다.
+      // 실측 로그에서 펀치 간격이 최소 0.20초 / 중앙값 0.25초로 들어오는데,
+      // 하한이 480ms면 연타 중에는 잠금이 한 번도 풀리지 않아 이동이 완전히 죽는다.
+      // 실제 보호는 아래 PUNCH_LOCK_MAX + armsBusy(팔이 아직 나가 있는지)가 담당한다.
+      // 하한은 "팔이 확실히 나가 있는 최소 시간"만 덮으면 된다.
+      PUNCH_MOVE_DECAY: 1.2,   // 잠금 중 유지되는 이동 의사의 감쇠 시상수(s)
       PUNCH_LOCK_MAX: 1100,    // 팔이 아직 회수 중이면 여기까지 연장
       // 어깨폭 추종 — 커질 때는 빠르게, 작아질 때는 느리게 (몸통 회전은 줄이기만 하므로)
       SCALE_TAU_UP: 0.12,
@@ -355,6 +474,9 @@
     let lastPunchAny = 0, lastRotInputT = 0, punchLocked = false;
     let rotAnchor = null;                  // 회전 제스처 시작 시점의 yaw (±ROT_LIMIT 제한 기준)
     let punchLabel = "", punchLabelT = 0;
+    // 잠금 진입 "직전"의 이동 상태 — 펀치로 오염되기 전의 이동 의사다.
+    let wasLocked = false;
+    const lockedMove = { state: "NONE", intensity: 0 };
     let lastPoseT = 0, poseFps = 0;        // 실제 포즈 추정 주기 (튜닝 관찰용)
     // HUD 표시용. pitch는 항별로 나눠 보여줘야 어느 신호가 부족한지 바로 알 수 있다.
     const dbg = { L: { reachN: 0, speed: 0 }, R: { reachN: 0, speed: 0 },
@@ -460,6 +582,7 @@
     function relaxStates() {
       moveVote.cand = "NONE"; moveVote.since = 0;
       rotVote.cand = "NONE";  rotVote.since = 0;
+      wasLocked = false; lockedMove.state = "NONE"; lockedMove.intensity = 0;
       moveState = "NONE"; rotState = "NONE";
       moveIntensity *= 0.8; rotIntensity *= 0.8;
       guardSince = 0; guardActive = false;
@@ -469,13 +592,35 @@
 
     // 이동(앞/뒤/좌/우)과 회전을 각각 독립적으로 확정한다.
     function updateStates(now, dtPose) {
-      // 펀치 중에는 어느 방향으로도 새 이동/회전 상태가 생기지 않게 한다.
+      // 펀치 중에는 어느 방향으로도 **새** 이동/회전 상태가 생기지 않게 한다.
       // (펀치 동작이 어깨선·주먹 위치를 흔들어 앞/뒤·좌/우·회전 모두를 오검출시킨다)
       const locked = punchLocked;
 
+      // 잠금에 막 들어간 순간의 상태 = 펀치로 오염되기 "전"의 이동 의사. 이걸 붙잡아 둔다.
+      if (locked && !wasLocked) {
+        lockedMove.state = moveState;
+        lockedMove.intensity = moveIntensity;
+      }
+      wasLocked = locked;
+
+      if (locked) {
+        // 오염된 신호로 "새" 상태가 생기는 것은 계속 막는다 (3·5차 회귀 방지 — 펀치가 나를 밀지 않는다).
+        // 다만 이미 확정돼 있던 이동 의사까지 0으로 죽이지는 않는다.
+        // 예전에는 여기서 mCand="NONE" + mi=0 으로 지웠는데, 연타 간격(0.20~0.30s)이
+        // 잠금 하한보다 짧으면 잠금이 풀릴 틈이 없어 **영영 못 움직이는** 상태가 됐다.
+        // 붙잡아 둔 값은 펀치 이전 것이므로 펀치가 만들어낸 방향일 수 없다.
+        moveState = lockedMove.state;
+        lockedMove.intensity *= Math.exp(-dtPose / TUNE.PUNCH_MOVE_DECAY);
+        moveIntensity = lockedMove.intensity;
+        // 회전은 계속 완전히 막는다 — 주먹 좌우 이동이 곧 회전 신호라 펀치와 정면으로 겹친다.
+        rotState = "NONE";
+        rotIntensity += (0 - rotIntensity) * (1 - Math.exp(-dtPose / 0.13));
+        return;
+      }
+
       // --- 이동: 어깨 기울기가 우선, 어깨가 평행할 때만 앞/뒤를 본다 ---
       let mCand = "NONE";
-      if (!locked) {
+      {
         const rollOn = (moveState === "LEFT" || moveState === "RIGHT") ? TUNE.ROLL_OFF : TUNE.ROLL_ON;
         if (sRoll > rollOn) mCand = "LEFT";
         else if (sRoll < -rollOn) mCand = "RIGHT";
@@ -493,7 +638,7 @@
 
       // --- 회전: 어깨 평행 + 주먹 좌/우 이동. 이동 상태와 무관하게 판정 ---
       let rCand = "NONE";
-      if (!locked && Math.abs(sRoll) < TUNE.ROLL_FLAT) {
+      if (Math.abs(sRoll) < TUNE.ROLL_FLAT) {
         const sOn = (rotState !== "NONE") ? TUNE.SHIFT_OFF : TUNE.SHIFT_ON;
         if (sShift > sOn) rCand = "ROT_LEFT";
         else if (sShift < -sOn) rCand = "ROT_RIGHT";
@@ -503,13 +648,12 @@
       // --- 강도: 임계값을 넘은 만큼 비례 (0~1), 급변 방지용 EMA (시상수 0.13s) ---
       const ka = 1 - Math.exp(-dtPose / 0.13);
       let mi = 0;
-      if (locked) mi = 0;   // 펀치 중에는 남아 있는 상태의 강도도 즉시 죽인다
-      else if (moveState === "LEFT" || moveState === "RIGHT") mi = clamp01((Math.abs(sRoll) - TUNE.ROLL_OFF) / TUNE.ROLL_RANGE);
+      if (moveState === "LEFT" || moveState === "RIGHT") mi = clamp01((Math.abs(sRoll) - TUNE.ROLL_OFF) / TUNE.ROLL_RANGE);
       else if (moveState === "FORWARD") mi = clamp01((sPitch - TUNE.PITCH_OFF) / TUNE.PITCH_RANGE);
       else if (moveState === "BACK") mi = clamp01((-sPitch - TUNE.PITCH_BACK_OFF) / TUNE.PITCH_BACK_RANGE);
       moveIntensity += (mi - moveIntensity) * ka;
 
-      const ri = (locked || rotState === "NONE") ? 0 : clamp01((Math.abs(sShift) - TUNE.SHIFT_OFF) / TUNE.SHIFT_RANGE);
+      const ri = (rotState === "NONE") ? 0 : clamp01((Math.abs(sShift) - TUNE.SHIFT_OFF) / TUNE.SHIFT_RANGE);
       rotIntensity += (ri - rotIntensity) * ka;
       if (rotState !== "NONE") lastRotInputT = now;
     }
@@ -717,7 +861,10 @@
       if (punch) {
         lastPunchAny = now;
         arms[punch.action.startsWith("LEFT") ? "L" : "R"].anim = 1;
-        punchLabel = punch.action; punchLabelT = now;
+        // 반드시 패킷 전송 전에 — 서버는 이 패킷의 yaw로 명중을 판정한다.
+        const aimed = snapAimForPunch();
+        punchLabel = punch.action + (aimed ? ` → ${aimed.id.replace('client_', 'P')}` : '');
+        punchLabelT = now;
         playWhoosh();
         sendCombatPacket(punch.action, punch.speed * 3.6);
       }
@@ -790,9 +937,27 @@
     let renderFrames = 0, lastFpsTime = performance.now();
     let lastCamDraw = 0;
 
+    let animErrShown = false;
     function animate(now) {
       requestAnimationFrame(animate);
+      try {
+        animateFrame(now);
+      } catch (e) {
+        // rAF는 맨 위에서 이미 예약되므로, 여기서 예외가 나면 renderer.render 만 영원히 건너뛴다.
+        // = 1인칭 화면이 검은 채로 멈춘다. 조용히 죽지 않도록 화면에 띄운다.
+        if (!animErrShown) {
+          animErrShown = true;
+          console.error('[animate]', e);
+          const box = document.getElementById('anim-error');
+          if (box) {
+            box.style.display = 'block';
+            box.textContent = 'RENDER ERROR: ' + ((e && e.stack) ? e.stack.split('\n').slice(0, 3).join('\n') : e);
+          }
+        }
+      }
+    }
 
+    function animateFrame(now) {
       const dt = Math.min(Math.max((now - lastFrameTime) / 1000, 0.001), 0.1);
       lastFrameTime = now;
 
@@ -892,27 +1057,24 @@
       const fx = -Math.sin(rotationAngle), fz = -Math.cos(rotationAngle);   // 정면
       const lx = -Math.cos(rotationAngle), lz =  Math.sin(rotationAngle);   // 왼쪽
 
-      // 가장 가까운 상대 탐색 (자동 접근 + 자동 조준에 공통으로 사용)
-      let nearDist = Infinity, nearAngle = rotationAngle, nearDX = 0, nearDZ = 0;
-      Object.keys(opponentPositions).forEach(id => {
-        const t = opponentPositions[id];
-        if (!t) return;
-        const ddx = t.x - playerX, ddz = t.z - playerZ;
-        const dist = Math.hypot(ddx, ddz);
-        if (dist < nearDist) {
-          nearDist = dist; nearAngle = Math.atan2(-ddx, -ddz);
-          nearDX = ddx; nearDZ = ddz;
-        }
-      });
+      // 가장 가까운 "살아있는" 상대 (자동 접근 + 자동 조준에 공통으로 사용)
+      const near = findNearestOpponent();
+      const nearDist = near ? near.dist : Infinity;
+      const nearAngle = near ? near.angle : rotationAngle;
+      const nearDX = near ? near.dx : 0, nearDZ = near ? near.dz : 0;
       const engaged = nearDist < ENGAGE_RANGE;
+      // 내가 K.O.면 관전 상태 — 이동·조준을 모두 멈춘다
+      const dead = myHp <= 0;
 
-      // 펀치 중에는 캐릭터를 고정한다 — 이동과 펀치를 동시에 하지 않는다
+      // 펀치 잠금 처리는 updateStates 로 일원화했다(잠금 직전의 이동 의사를 붙잡아 둔다).
+      // 여기서 또 이동을 0으로 만들면 연타 중 영영 못 움직인다 — 그게 "앞으로 안 가진다"의 원인이었다.
+      // moveIntensity 자체가 이미 잠금을 반영하므로 그대로 적용하면 된다.
       const punchFreeze = punchLocked;
 
       // 제스처가 끝나면 앵커를 풀어, 다음 제스처가 새로 45°를 쓸 수 있게 한다
       if (rotState === "NONE") rotAnchor = null;
 
-      if (!punchFreeze) {
+      {
         // 몸 기울임 이동 (웹캠) — 어깨 기울기 = 좌/우, 얼굴·주먹 상하 = 앞/뒤
         if (moveState !== "NONE" && moveIntensity > 0.02) {
           const s = MOVE_SPEED * moveIntensity * dt;
@@ -934,6 +1096,7 @@
 
         // 근접 교전 — 사거리 안에 들어오면 상대에게 붙어 공격 거리를 유지한다.
         // 뒤로 빼는 중이면 적용하지 않는다(후퇴 의사를 덮어쓰지 않도록).
+        // 이 항은 타깃 방향만 보므로 펀치로 인한 자세 오염과 무관하다 → 잠금 중에도 돌린다.
         if (engaged && moveState !== "BACK" && nearDist > ENGAGE_DIST) {
           const pull = Math.min(nearDist - ENGAGE_DIST, 1.5) / 1.5 * ENGAGE_PULL * dt;
           moveX += (nearDX / nearDist) * pull;
@@ -941,14 +1104,22 @@
         }
       }
 
-      // 자동 조준 회전 — 수동 회전 입력 중이거나 직후(1.2s)에는 억제.
+      // 상시 자동 조준 — 수동 회전 입력 중이거나 직후(AIM_MANUAL_HOLD)에는 억제한다.
+      // 억제 시간을 1.2초에서 0.5초로 줄였다. 회전 제스처는 주먹을 좌우로 쓰는 것이라
+      // 복싱 중 오검출이 잦은데, 1.2초씩 잠기면 자동 조준이 사실상 켜지지 않는다.
       // 교전 중에는 상대를 놓치지 않도록 더 빠르게 정렬한다(펀치 판정이 시야각에 의존).
-      const manualRot = keys['ArrowLeft'] || keys['ArrowRight'] || rotState !== "NONE" || (now - lastRotInputT) < 1200;
-      if (!manualRot && nearDist < Infinity) {
-        const diff = Math.atan2(Math.sin(nearAngle - rotationAngle), Math.cos(nearAngle - rotationAngle));
-        rotationAngle += diff * (engaged ? 6.0 : 1.5) * dt;
+      let aimErr = 0;
+      const manualRot = keys['ArrowLeft'] || keys['ArrowRight'] || rotState !== "NONE"
+                     || (now - lastRotInputT) < AIM_MANUAL_HOLD;
+      if (near) {
+        aimErr = angleWrap(nearAngle - rotationAngle);
+        if (!manualRot && !dead) {
+          const rate = engaged ? AIM_RATE_ENGAGED : AIM_RATE_FAR;
+          rotationAngle = angleWrap(rotationAngle + aimErr * Math.min(1, rate * dt));
+        }
       }
 
+      if (dead) { moveX = 0; moveZ = 0; }   // K.O. 상태에서는 링에서 움직이지 않는다
       playerX += moveX;
       playerZ += moveZ;
       playerX = Math.max(-16, Math.min(16, playerX));
@@ -956,6 +1127,26 @@
 
       cameraRig.position.set(playerX, 5, playerZ);
       cameraRig.rotation.y = rotationAngle;
+
+      // 피격 카메라 흔들림 — 세기는 데미지 비례, 시간에 따라 감쇠
+      if (shakeT > 0) {
+        shakeT -= dt;
+        const a = Math.max(0, shakeT / 0.38) * shakeMag;
+        cameraRig.position.x += (Math.random() - 0.5) * a;
+        cameraRig.position.y += (Math.random() - 0.5) * a;
+        cameraRig.rotation.z = (Math.random() - 0.5) * a * 0.06;
+      } else if (cameraRig.rotation.z !== 0) {
+        cameraRig.rotation.z = 0;
+      }
+
+      // 피격 비네트 감쇠 (0.45초)
+      if (hurtFlash > 0) {
+        hurtFlash = Math.max(0, hurtFlash - dt / 0.45);
+        hitFlash.style.opacity = hurtFlash.toFixed(3);
+      }
+
+      // 타격/K.O. 이펙트 갱신
+      hitFx.update(dt);
 
       // 펀치 뻗음 → 회수 애니메이션 (-z가 정면)
       arms.L.anim = Math.max(0, arms.L.anim - dt * 3.5);
@@ -990,7 +1181,12 @@
         `ArmL  : reach ${dbg.L.reachN.toFixed(2)} v ${dbg.L.speed.toFixed(1)}${arms.L.armed ? " *" : ""}\n` +
         `ArmR  : reach ${dbg.R.reachN.toFixed(2)} v ${dbg.R.speed.toFixed(1)}${arms.R.armed ? " *" : ""}\n` +
         `Pose  : ${latestPose ? "7 nodes" : "none"} ${poseFps.toFixed(0)}fps [${cal}]\n` +
-        `Pos   : ${playerX.toFixed(1)}, ${playerZ.toFixed(1)}`;
+        `Pos   : ${playerX.toFixed(1)}, ${playerZ.toFixed(1)}
+` +
+        `Target: ${near ? `${near.id.replace('client_', 'P')} ${near.dist.toFixed(1)}u ` +
+                          `${(aimErr * 180 / Math.PI).toFixed(0)}deg ` +
+                          `${Math.abs(aimErr) < 0.25 ? 'LOCKED' : (manualRot ? 'manual' : 'aiming')}`
+                        : '-- (없음)'}`;
       debugInfo.innerText = `move: ${moveX.toFixed(4)},${moveZ.toFixed(4)} | rot: ${rotationAngle.toFixed(2)}` +
         ` | near: ${nearDist === Infinity ? '--' : nearDist.toFixed(1)}${engaged ? ' ENGAGED' : ''}${punchFreeze ? ' | PUNCH-FREEZE' : ''}`;
 
