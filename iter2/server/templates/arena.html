@@ -213,6 +213,11 @@
     scene.background = new THREE.Color(0x07080d);
     scene.fog = new THREE.Fog(0x07080d, 60, 120);
 
+    // 배경 환경 사진 로드 (없으면 단색 유지)
+    // 방식: 링을 감싸는 곡면(원통 안쪽) backdrop. 어떤 비율의 사진이든 자연스럽게 표시.
+    let backdropMesh = null;
+    const bgLoader = new THREE.TextureLoader();
+
     const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 35, 55);
 
@@ -221,6 +226,40 @@
     renderer.setPixelRatio(1);
     renderer.shadowMap.enabled = false;
     container.appendChild(renderer.domElement);
+
+    // 배경 사진 실제 로드 (renderer 준비 후 실행)
+    bgLoader.load('/static/ring_bg.jpg',
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        try { tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); } catch(e) {}
+
+        // 반경 45, 높이 60의 곡면 원통(안쪽 면) — 링(40x40) 바로 바깥에 밀착.
+        const backdropGeo = new THREE.CylinderGeometry(45, 45, 60, 64, 1, true);
+        const backdropMat = new THREE.MeshBasicMaterial({
+          map: tex,
+          side: THREE.BackSide,
+          fog: false,
+          depthWrite: false,
+          toneMapped: false,
+          color: 0x8899aa, // 살짝 어둡고 채도 낮춤 → 링 조명과 어우러짐
+        });
+        backdropMesh = new THREE.Mesh(backdropGeo, backdropMat);
+        backdropMesh.position.y = 15;
+        backdropMesh.renderOrder = -1;
+        scene.add(backdropMesh);
+
+        scene.fog = new THREE.Fog(0x07080d, 50, 120);
+        if (typeof addCombatLog === 'function') {
+          addCombatLog("<b style='color:#0ff'>배경 환경 사진 로드 완료</b>");
+        }
+      },
+      undefined,
+      () => { console.log('[BG] 배경 이미지 없음 - 기본 단색 사용'); }
+    );
 
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;

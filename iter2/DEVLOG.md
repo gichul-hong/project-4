@@ -1,8 +1,60 @@
 # 🥊 Iter2 개발/변경 이력 (DEVLOG)
 
 > **프로젝트**: 4인 실시간 AR 섀도우 복싱 & 배틀 아레나
-> **최종 갱신**: 2026-08-24 (월) 22:15
+> **최종 갱신**: 2026-08-25 (화) 10:05
 > **작성 규칙**: 최신 변경이 위. 각 항목은 `날짜 — 변경 내용 / 이유 / 영향 범위` 형식.
+
+---
+
+## 2026-08-25 (화) — 배경 렌더 방식 변경 & CV Quick Wins Phase 1
+
+### [10:05] 링 배경을 곡면 backdrop 방식으로 변경 (파노라마 요구 폐기)
+- **원인**: 기존 `EquirectangularReflectionMapping` + `scene.background`는 이미지가 **2:1 파노라마**가 아니면 좌우로 심하게 늘어나 품질이 크게 저하됨. 일반 사진을 넣었을 때 뭉개짐/왜곡이 발생.
+- **변경**: 링(또는 카메라) 주위를 감싸는 **원통 안쪽 면(CylinderGeometry openEnded, BackSide)** 에 텍스처를 매핑하는 방식으로 교체.
+  - `arena.html`: 반경 90, 높이 80, 세그먼트 64, `position.y = 20`
+  - `fighter_client.html`: 반경 60, 높이 50, 세그먼트 48, `position.y = 10`
+- **머티리얼**: `MeshBasicMaterial({ side: BackSide, fog: false, depthWrite: false, toneMapped: false, color: 0x8899aa })`. 어두운 색조로 링 조명과 자연스럽게 어우러지고, 텍스처는 sRGB + 아니소트로피 필터로 선명도 확보.
+- **렌더 순서**: `renderOrder = -1` + `depthWrite = false`로 항상 배경 레이어로 취급.
+- **로드 순서 수정**: `bgLoader.load` 콜백에서 `renderer.capabilities.getMaxAnisotropy()`를 호출하므로 로더 호출 자체를 `renderer` 초기화 이후로 옮김. `addCombatLog`도 로더 콜백보다 나중에 정의되므로 존재 검사 후 호출.
+- **효과**: 일반 사진(16:9, 4:3, 정사각형 무관)을 넣어도 원통 표면에 부드럽게 감기고, 카메라 회전 시에도 왜곡이 극단화되지 않음.
+- 영향: `server/templates/arena.html`, `server/templates/fighter_client.html`
+
+### [09:45] TODO.md 상태 갱신
+- `TODO.md` 우선순위 표에서 #3(Z좌표 3D 펀치), #5(네온 글로우), #7(환경 사진 링 배경)을 `[x]`로 갱신.
+- #7은 코드 경로만 반영된 상태이므로 `static/ring_bg.jpg` 배치 필요 조건을 표에 명시.
+- 영향: `iter2/TODO.md`
+
+### [09:40] dead code 정리 — `depthExtDelta`
+- `fighter_client.html`의 `onHandsResults()` 내부에서 계산만 하고 참조되지 않던 `depthExtDelta` 라인을 제거.
+- 함께 남아 있던 관련 지역 변수(`prevDepthExt`)도 정리. `prevHands[hand].de`는 유지(다음 프레임 비교에 필요).
+- 영향: `server/templates/fighter_client.html`
+
+### [09:30] #3 3D Z좌표 펀치 분류 반영 확인
+- `prevHands`에 `z / wz(손목 z) / de(깊이 확장) / dv(깊이 속도)` 저장 구조로 확장.
+- 3D 속도: `vel3D = sqrt(dx² + dy² + (dz*50)²) * 1.5 / dt * 3.6` (Z를 XY 스케일에 맞추어 50배 가중).
+- 깊이 속도: `depthVel = |Δwz| / dt * 100`, 팔 뻗음: `depthExt = wristZ − indexTipZ`.
+- 펀치 분류 3단계(임계값 12 km/h, 쿨다운 350ms):
+  - Z변화↑(`depthVel>3.0`, `|depthExt|>0.03`) → `LEFT_HOOK / RIGHT_CROSS`
+  - Z변화 중간(`depthVel>1.5`) → `LEFT_JAB / RIGHT_UPPERCUT`
+  - Z변화 낮음 → 기본(LEFT_JAB / RIGHT_CROSS)
+- 글러브 로컬 Z: `gloveZ = -3.5 + depthExt * 8` (팔 뻗을수록 앞으로).
+- HUD: `V3D / Z-ext / Z-vel` 값 표시(`moveHud`).
+- 영향: `server/templates/fighter_client.html`
+
+### [09:30] #5 웹캠 AR 네온 글로우 반영 확인
+- 웹캠 캔버스에 CSS 사이버펑크 필터 적용: `filter: contrast(1.2) saturate(1.4) brightness(0.95)`.
+- `glowIntensity = min(lastVel3D / 50, 1.0)`, `glowPulse = 1 + glowIntensity * 0.6`로 펀치 속도에 비례한 펄싱.
+- 랜드마크: `shadowBlur = 20 + glowIntensity * 25`, `radius = 4 * glowPulse`.
+- 커넥터: `shadowBlur = 15 + glowIntensity * 15`, `lineWidth = 2.5 * glowPulse`.
+- 각 손 렌더 종료 후 `shadowBlur = 0`으로 리셋하여 이후 그리기 오염 방지.
+- 영향: `server/templates/fighter_client.html`
+
+### [09:30] #7 환경 사진 → 링 배경 반영 확인
+- `arena.html`, `fighter_client.html` 양쪽에 `THREE.TextureLoader`로 `/static/ring_bg.jpg` 로드.
+- 성공 시 `EquirectangularReflectionMapping` 배경으로 대체하고 `scene.fog`도 원경(80/50 → 160/110)으로 완화.
+- 로드 실패 시 콜백만 no-op으로 두어 기존 단색 배경(`0x07080d / 0x080a10`)을 그대로 유지 → 이미지가 없어도 씬은 정상 동작.
+- **주의**: 현재 `iter2/server/static/ring_bg.jpg` 파일이 저장소에 없어 항상 폴백 경로로 동작. 파노라마 이미지를 배치하면 즉시 반영.
+- 영향: `server/templates/arena.html`, `server/templates/fighter_client.html`, `server/static/`(자산 배치 필요)
 
 ---
 

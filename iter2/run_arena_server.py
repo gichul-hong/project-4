@@ -34,6 +34,7 @@ if __name__ == "__main__":
     print("=" * 70)
 
     if use_ssl:
-        uvicorn.run(app, host="0.0.0.0", port=args.port, ssl_certfile=cert_path, ssl_keyfile=key_path)
+        uvicorn.run(app, host="0.0.0.0", port=args.port, ssl_certfile=cert_path, ssl_keyfile=key_path, timeout_graceful_shutdown=0)
     else:
-        uvicorn.run(app, host="0.0.0.0", port=args.port)
+        uvicorn.run(app, host="0.0.0.0", port=args.port, timeout_graceful_shutdown=0)
+

@@ -21,7 +21,7 @@
     .panel.cam-view { border-color: var(--f-color); }
     .panel.ring-view { border-color: #ffd700; }
     video { display: none; }
-    canvas#cam-canvas { width: 100%; height: 100%; transform: scaleX(-1); object-fit: contain; background: #000; }
+    canvas#cam-canvas { width: 100%; height: 100%; transform: scaleX(-1); object-fit: contain; background: #000; filter: contrast(1.2) saturate(1.4) brightness(0.95); }
     #first-person-ring { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
     .action-hud { position: absolute; bottom: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.85); border: 1px solid var(--f-color); border-radius: 6px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 12px; z-index: 5; }
     .act-title { font-size: 16px; font-weight: 900; color: var(--f-color); }
@@ -93,6 +93,11 @@
     scene.background = new THREE.Color(0x080a10);
     scene.fog = new THREE.Fog(0x080a10, 40, 90);
 
+    // 배경 환경 사진 로드 (없으면 단색 유지)
+    // 방식: 카메라를 감싸는 곡면(원통 안쪽) backdrop. 어떤 비율의 사진이든 자연스럽게 표시.
+    let backdropMesh = null;
+    const bgLoader = new THREE.TextureLoader();
+
     const camera = new THREE.PerspectiveCamera(68, ringContainer.clientWidth / ringContainer.clientHeight, 0.1, 1000);
     const cameraRig = new THREE.Group();
     camera.position.set(0, 0.6, 5.5);
@@ -103,6 +108,37 @@
     renderer.setSize(ringContainer.clientWidth, ringContainer.clientHeight);
     renderer.setPixelRatio(1);
     ringContainer.appendChild(renderer.domElement);
+
+    // 배경 사진 실제 로드 (renderer 준비 후)
+    bgLoader.load('/static/ring_bg.jpg',
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        try { tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); } catch(e) {}
+
+        // 반경 25, 높이 35 원통 안쪽 면 (1인칭 시점 스케일 — 링에 밀착)
+        const backdropGeo = new THREE.CylinderGeometry(25, 25, 35, 48, 1, true);
+        const backdropMat = new THREE.MeshBasicMaterial({
+          map: tex,
+          side: THREE.BackSide,
+          fog: false,
+          depthWrite: false,
+          toneMapped: false,
+          color: 0x8899aa,
+        });
+        backdropMesh = new THREE.Mesh(backdropGeo, backdropMat);
+        backdropMesh.position.y = 8;
+        backdropMesh.renderOrder = -1;
+        scene.add(backdropMesh);
+
+        scene.fog = new THREE.Fog(0x080a10, 30, 80);
+      },
+      undefined,
+      () => {}
+    );
 
     scene.add(new THREE.AmbientLight(0x445577, 0.9));
     const spot = new THREE.SpotLight(0xffffff, 1.6); spot.position.set(0,35,0); scene.add(spot);
@@ -222,6 +258,7 @@
     let neutralX = 0.5, neutralY = 0.4;
     let calibFrames = 0;
     let latestHandResults = null;
+    let lastDepthExt = 0, lastDepthVel = 0, lastVel3D = 0;
 
     const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
     hands.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.4, minTrackingConfidence: 0.4 });
@@ -231,6 +268,7 @@
       latestHandResults = res;
       let detectedAction = "IDLE";
       let maxVel = 0;
+      let maxDepthExt = 0, maxDepthVel = 0;
 
       if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
         const handCount = res.multiHandLandmarks.length;
@@ -239,30 +277,53 @@
           const lm = res.multiHandLandmarks[i];
           const hand = res.multiHandedness[i]?.label || (i===0 ? "Right" : "Left");
           const p = prevHands[hand];
-          let vel = 0;
+          let vel = 0, vel3D = 0, depthVel = 0, depthExt = 0;
+          const wristZ = lm[0].z;
+          const idxTipZ = lm[8].z;
+          depthExt = wristZ - idxTipZ; // 양수 = 팔이 앞으로 뻗어짐 (카메라 기준)
+
           if (p && (now - p.t) > 20) {
             const dt = (now - p.t) / 1000;
             const dist = Math.hypot(lm[8].x - p.x, lm[8].y - p.y);
             vel = (dist * 1.5 / dt) * 3.6;
-          }
-          prevHands[hand] = { x: lm[8].x, y: lm[8].y, t: now };
-          if (vel > maxVel && vel < 120) maxVel = vel;
 
-          // 글러브 위치
+            // Z 깊이 변화량 (스케일링: 50배로 XY와 비슷한 크기로)
+            const dz = (p.wz - wristZ) * 50;
+            vel3D = (Math.sqrt(dist * dist + dz * dz) * 1.5 / dt) * 3.6;
+
+            // 깊이 속도 (Z만)
+            depthVel = (Math.abs(p.wz - wristZ) / dt) * 100;
+          }
+          prevHands[hand] = { x: lm[8].x, y: lm[8].y, z: lm[8].z, wz: wristZ, de: depthExt, t: now, dv: depthVel };
+          if (vel3D > maxVel && vel3D < 120) maxVel = vel3D;
+          if (Math.abs(depthExt) > Math.abs(maxDepthExt)) maxDepthExt = depthExt;
+          if (depthVel > maxDepthVel) maxDepthVel = depthVel;
+
+          // 3D 속도 기반 펀치 분류
+          let punchType = null;
+          if (vel3D > 12 && (now - lastPunchTime) > 350) {
+            const absDepthExt = Math.abs(depthExt);
+            if (depthVel > 3.0 && absDepthExt > 0.03) {
+              punchType = (hand === "Left") ? "LEFT_HOOK" : "RIGHT_CROSS"; // 큰 Z변화 → 크로스/훅
+            } else if (depthVel > 1.5) {
+              punchType = (hand === "Left") ? "LEFT_JAB" : "RIGHT_UPPERCUT"; // 중간 Z변화 → 잽/어퍼컷
+            } else {
+              punchType = (hand === "Left") ? "LEFT_JAB" : "RIGHT_CROSS"; // 낮은 Z변화 → 기본
+            }
+            lastPunchTime = now; detectedAction = punchType; lunge = 0.6;
+            playWhoosh(); sendCombatPacket(punchType, vel3D);
+          }
+
+          // 글러브 3D 위치 갱신 (Z 깊이 반영)
+          const gloveZ = -3.5 + (depthExt * 8); // 팔 뻗을수록 앞쪽으로
           if (hand === "Left") {
             myLeftGlove.position.x = (lm[8].x - 0.5) * 4.0 - 1.5;
             myLeftGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (vel > 12 && (now - lastPunchTime) > 350) {
-              lastPunchTime = now; detectedAction = "LEFT_JAB"; punchTargetZL = -8.5; lunge = 0.6;
-              playWhoosh(); sendCombatPacket("LEFT_JAB", vel);
-            }
+            if (punchType) { punchTargetZL = gloveZ; }
           } else {
             myRightGlove.position.x = (lm[8].x - 0.5) * 4.0 + 1.5;
             myRightGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (vel > 12 && (now - lastPunchTime) > 350) {
-              lastPunchTime = now; detectedAction = "RIGHT_CROSS"; punchTargetZR = -8.5; lunge = 0.6;
-              playWhoosh(); sendCombatPacket("RIGHT_CROSS", vel);
-            }
+            if (punchType) { punchTargetZR = gloveZ; }
           }
         }
 
@@ -297,6 +358,10 @@
         actionText.innerText = detectedAction;
         speedText.innerText = maxVel.toFixed(1);
         currentAction = (detectedAction === "DUAL_GUARD") ? "DUAL_GUARD" : "IDLE";
+        currentVelocity = maxVel;
+        lastVel3D = maxVel;
+        lastDepthExt = maxDepthExt;
+        lastDepthVel = maxDepthVel;
       } else {
         actionText.innerText = "IDLE";
         speedText.innerText = "0.0";
@@ -353,12 +418,36 @@
           canvasCtx.save();
           canvasCtx.clearRect(0,0,canvasElement.width,canvasElement.height);
           canvasCtx.drawImage(videoElement,0,0,canvasElement.width,canvasElement.height);
+
+          // AR 네온 글로우 이펙트
+          const glowIntensity = Math.min(lastVel3D / 50, 1.0); // 속도에 비례한 글로우 강도
+          const glowPulse = 1 + glowIntensity * 0.6; // 펄싱 효과
+
           if (latestHandResults && latestHandResults.multiHandLandmarks) {
             for (let i=0; i<latestHandResults.multiHandLandmarks.length; i++) {
               const lm = latestHandResults.multiHandLandmarks[i];
               const h = latestHandResults.multiHandedness[i]?.label || "Right";
-              drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: h==="Left"?"#00e5ff":userColor, lineWidth:2});
-              drawLandmarks(canvasCtx, lm, {color:'#fff', fillColor:userColor, radius:3});
+              const hColor = h==="Left"?"#00e5ff":userColor;
+
+              // 랜드마크 네온 글로우
+              canvasCtx.shadowColor = hColor;
+              canvasCtx.shadowBlur = 20 + glowIntensity * 25;
+              drawLandmarks(canvasCtx, lm, {
+                color: '#ffffff',
+                fillColor: hColor,
+                radius: 4 * glowPulse,
+                lineWidth: 2
+              });
+
+              // 커넥터 네온 글로우
+              canvasCtx.shadowColor = hColor;
+              canvasCtx.shadowBlur = 15 + glowIntensity * 15;
+              drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {
+                color: hColor,
+                lineWidth: 2.5 * glowPulse
+              });
+
+              canvasCtx.shadowBlur = 0; // 다음 렌더를 위해 리셋
             }
           }
           canvasCtx.restore();
@@ -457,7 +546,7 @@
       const lxP = (leanX*100).toFixed(1), lyP = (leanY*100).toFixed(1);
       const cal = calibFrames < 25 ? `CAL ${calibFrames}/25` : "OK";
       const handsOk = latestHandResults && latestHandResults.multiHandLandmarks && latestHandResults.multiHandLandmarks.length > 0;
-      moveHud.innerText = `Lean: ${lxP}%,${lyP}% [${cal}]\nPos: ${playerX.toFixed(1)},${playerZ.toFixed(1)}\nHands: ${handsOk ? latestHandResults.multiHandLandmarks.length : 'none'} | nX:${neutralX.toFixed(3)} nY:${neutralY.toFixed(3)}`;
+      moveHud.innerText = `Lean: ${lxP}%,${lyP}% [${cal}]\nPos: ${playerX.toFixed(1)},${playerZ.toFixed(1)}\nHands: ${handsOk ? latestHandResults.multiHandLandmarks.length : 'none'} | V3D:${lastVel3D.toFixed(1)}\nZ-ext:${lastDepthExt.toFixed(3)} Z-vel:${lastDepthVel.toFixed(1)}`;
       debugInfo.innerText = `move: ${moveX.toFixed(4)},${moveZ.toFixed(4)} | rot: ${rotationAngle.toFixed(2)} | lunge: ${lunge.toFixed(3)}`;
 
       renderer.render(scene, camera);

@@ -313,6 +313,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             "client_id": client_id,
             "active_users": list(manager.active_connections.keys())
         })
+    except asyncio.CancelledError:
+        manager.disconnect(client_id)
+        raise
     except Exception as e:
         import traceback
         print(f"[ERROR] websocket_endpoint exception for {client_id}: {e}", flush=True)
@@ -321,4 +324,5 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, timeout_graceful_shutdown=0)
+
