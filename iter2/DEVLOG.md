@@ -1,14 +1,40 @@
 # 🥊 Iter2 개발/변경 이력 (DEVLOG)
 
 > **프로젝트**: 4인 실시간 AR 섀도우 복싱 & 배틀 아레나
-> **최종 갱신**: 2026-08-25 (화) 10:05
+> **최종 갱신**: 2026-08-25 (화) 11:00
 > **작성 규칙**: 최신 변경이 위. 각 항목은 `날짜 — 변경 내용 / 이유 / 영향 범위` 형식.
 
 ---
 
-## 2026-08-25 (화) — 배경 렌더 방식 변경 & CV Quick Wins Phase 1
+## 2026-08-25 (화) — 슬롯 중복 접속 방지 & 배경/CV Quick Wins
 
-### [10:05] 링 배경을 곡면 backdrop 방식으로 변경 (파노라마 요구 폐기)
+### [11:00] README.md 전면 갱신
+- **원인**: 기존 README는 Iteration 2 초기 버전으로 최근 3주간의 변경(휴머노이드 도입, WASD → 화살표 키, 3D 펀치 분류, 배경 곡면 backdrop, 슬롯 중복 방지, CV 기법 매핑)이 하나도 반영되지 않은 상태.
+- **주요 갱신 항목**:
+  - 시스템 아키텍처 다이어그램을 현재 실제 구성으로 재작성 (Three.js r128, WebSocket throttling, 곡면 backdrop, MediaPipe Hands 21×2)
+  - 복싱 모션 표를 실제 코드의 임계값(`V3D > 12 km/h`, `depthVel` 기준)과 클래스 이름(`LEFT_JAB`, `RIGHT_CROSS` 등)에 맞춰 정확히 표기. BiLSTM은 "학습 완료·런타임 미연동"으로 정정.
+  - **CV 기법 적용 현황** 섹션 신규: 8개 분야 중 04/05/08 대응 요약 + `CV_TECHNIQUES.md` 링크
+  - **슬롯 중복 접속 방지** 안내 추가: 접속 URL 표에 슬롯 열, `code 4409` 거절 동작 설명
+  - **화살표 키만 지원** 명시 (WASD 제거된 사실 반영)
+  - 링 배경 사진 배치 방법 명시 (`iter2/server/static/ring_bg.jpg`)
+  - **저장소 구조** 섹션 신규: 파일 트리와 각 파일 역할
+  - **관련 문서** 섹션: `TODO.md`, `DEVLOG.md`, `CV_TECHNIQUES.md`, 레퍼런스 HTML로의 링크
+- 영향: `iter2/README.md`
+
+### [10:55] host_arena · client_1~4 슬롯 중복 접속 거부 (WebSocket 4409)
+- **원인**: 서버 `ArenaGameManager.connect()`가 이미 사용 중인 `client_id`를 조용히 덮어써서, 뒤에 접속한 세션이 슬롯을 탈취하고 먼저 접속했던 세션은 유령 상태(broadcast 미수신)로 얼어붙는 버그.
+  - `host_arena` 슬롯을 두 대의 노트북에서 동시에 여는 실수, `client_1`을 두 사용자가 함께 붙는 경우 모두 재현됨.
+- **해결 (옵션 A)**: 신규 연결 시점에 기존 세션의 `client_state`를 확인.
+  - 살아 있으면 신규 세션을 `code 4409, reason "slot_in_use"`로 즉시 종료하고, 종료 직전에 `{"type": "connection_rejected", ...}` 메시지를 전송.
+  - 죽어 있으면 기존 항목을 정리한 뒤 새 접속을 정상 수락.
+  - `connect()`가 bool을 반환하도록 시그니처 변경(True=수락, False=거부). `websocket_endpoint`는 False일 때 조기 return.
+- **UX**: `arena.html`, `fighter_client.html`에 각각 `showHostRejectedOverlay` / `showSlotRejectedOverlay` 함수 추가. 4409 코드를 받거나 `connection_rejected` 메시지를 받으면 전체 화면 안내 오버레이 표시.
+  - fighter_client 오버레이에는 남은 다른 슬롯(`client_2~4`)으로 이동하는 링크 버튼을 자동 생성.
+  - 두 오버레이 모두 "다시 시도" 버튼으로 페이지 새로고침 가능.
+- **영향**: `server/app.py` (`connect`, `websocket_endpoint`), `server/templates/arena.html`, `server/templates/fighter_client.html`
+- **주의**: 브라우저 새로고침 시에는 기존 소켓의 close 이벤트가 서버에 먼저 도달해 슬롯이 해제되는 것이 일반적. 만약 close가 지연되어 새로고침 재접속이 4409로 거부되는 경우가 발생하면, 서버 close 감지 후 짧은 grace period(예: 500ms) 재시도 로직을 클라이언트에 추가하는 방향으로 후속 개선 가능.
+
+### [10:20] 배경 원통을 링에 밀착
 - **원인**: 기존 `EquirectangularReflectionMapping` + `scene.background`는 이미지가 **2:1 파노라마**가 아니면 좌우로 심하게 늘어나 품질이 크게 저하됨. 일반 사진을 넣었을 때 뭉개짐/왜곡이 발생.
 - **변경**: 링(또는 카메라) 주위를 감싸는 **원통 안쪽 면(CylinderGeometry openEnded, BackSide)** 에 텍스처를 매핑하는 방식으로 교체.
   - `arena.html`: 반경 90, 높이 80, 세그먼트 64, `position.y = 20`

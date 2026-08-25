@@ -77,7 +77,31 @@ class ArenaGameManager:
             self.fighters[cid]["world_z"] = z
         return corrections
 
-    async def connect(self, websocket: WebSocket, client_id: str):
+    async def connect(self, websocket: WebSocket, client_id: str) -> bool:
+        """슬롯 중복 검사. 이미 사용 중이면 accept 후 code 4409로 close하고 False 반환."""
+        # 예약된 슬롯: host_arena(1) + client_1~4(각 1)
+        if client_id in self.active_connections:
+            existing = self.active_connections[client_id]
+            # 기존 연결이 아직 살아 있는지 ping. 살아 있으면 신규 거부.
+            try:
+                # WebSocket 상태 확인 (starlette는 client_state.value == 1이면 CONNECTED)
+                still_open = getattr(existing, "client_state", None)
+                if still_open is None or still_open.value == 1:
+                    await websocket.accept()
+                    await websocket.send_text(json.dumps({
+                        "type": "connection_rejected",
+                        "reason": "slot_in_use",
+                        "client_id": client_id,
+                        "message": f"'{client_id}' 슬롯이 이미 사용 중입니다. 다른 슬롯을 선택하거나 기존 세션을 종료한 뒤 다시 시도하세요.",
+                    }))
+                    await websocket.close(code=4409, reason="slot_in_use")
+                    print(f"[!] Rejected duplicate connection for {client_id}", flush=True)
+                    return False
+            except Exception:
+                # 기존 연결이 죽어 있으면 정리하고 신규 접속을 받는다.
+                pass
+            self.disconnect(client_id)
+
         await websocket.accept()
         self.active_connections[client_id] = websocket
         if client_id in self.fighters:
@@ -90,6 +114,7 @@ class ArenaGameManager:
             "fighters": self.fighters,
             "active_users": list(self.active_connections.keys())
         })
+        return True
 
     def disconnect(self, client_id: str):
         if client_id in self.active_connections:
@@ -248,7 +273,10 @@ async def get_motion_eval():
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await manager.connect(websocket, client_id)
+    accepted = await manager.connect(websocket, client_id)
+    if not accepted:
+        # 중복 슬롯: connect()가 이미 accept + 거부 메시지 + close 처리함.
+        return
     try:
         while True:
             data = await websocket.receive_text()

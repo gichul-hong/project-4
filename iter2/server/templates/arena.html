@@ -439,8 +439,31 @@
     };
     socket.onclose = (e) => {
       console.warn("[✗] Arena WebSocket CLOSED:", e.code, e.reason);
-      addCombatLog(`<b style='color:red'>WebSocket CLOSED (${e.code})</b>`);
+      if (e.code === 4409) {
+        // 슬롯 중복 — 다른 Host 창이 이미 열려 있음
+        showHostRejectedOverlay(e.reason || "slot_in_use");
+      } else {
+        addCombatLog(`<b style='color:red'>WebSocket CLOSED (${e.code})</b>`);
+      }
     };
+
+    // 슬롯 중복 시 화면을 덮는 안내 오버레이
+    function showHostRejectedOverlay(reason) {
+      if (document.getElementById('host-rejected-overlay')) return;
+      const ov = document.createElement('div');
+      ov.id = 'host-rejected-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(5,7,12,0.96);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:32px;text-align:center;';
+      ov.innerHTML = `
+        <div style="font-size:56px;margin-bottom:16px;">🚫</div>
+        <h1 style="font-size:28px;margin:0 0 12px;color:#ff3366;">Host 슬롯이 이미 사용 중입니다</h1>
+        <p style="font-size:16px;max-width:520px;line-height:1.5;color:#ccc;margin:0 0 24px;">
+          이 배틀 아레나에는 하나의 Host 뷰만 접속할 수 있습니다.<br>
+          다른 창/기기에서 이미 <code style="color:#0ff;">host_arena</code> 슬롯을 사용 중입니다.
+        </p>
+        <p style="font-size:13px;color:#888;font-family:monospace;">reason: ${reason}</p>
+        <button onclick="location.reload()" style="margin-top:24px;padding:10px 24px;background:#0ff;color:#000;border:none;border-radius:4px;font-size:14px;font-weight:700;cursor:pointer;">다시 시도</button>`;
+      document.body.appendChild(ov);
+    }
 
     let shakeDuration = 0;
     const keyboardState = {}; // WASD 키보드 입력 상태 (fighter_client 미러 방지)
@@ -457,6 +480,12 @@
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
+
+      // 슬롯 중복 거부 (close 4409 직전에 서버가 보냄)
+      if (data.type === "connection_rejected") {
+        showHostRejectedOverlay(data.reason || "slot_in_use");
+        return;
+      }
 
       // 1. 파이터 HP, 위치 & 액션 UI 갱신 (서버 상태 동기화)
       if (data.fighters) {
