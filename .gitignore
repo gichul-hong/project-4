@@ -1,0 +1,30 @@
+﻿# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*.class
+*.pyc
+
+# Environments & Virtualenv
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# SSL Certificates (Self-signed keys)
+*.pem
+*.key
+*.crt
+*.cert
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs & Temporary Files
+*.log
+*.tmp
