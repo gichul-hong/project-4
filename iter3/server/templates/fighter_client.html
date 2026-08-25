@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AR Boxing Controller</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="/static/humanoid.js"></script>
+  <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
+  <script src="/static/humanoid.js?v=3"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,7 +54,7 @@
     </div>
   </div>
   <footer>
-    <div>Arrows: move/rotate | Lean: webcam move | Punch: swing fast</div>
+    <div>기울임: 앞(숙이기)·뒤(젖히기)·좌우(어깨 기울이기) | 회전: 어깨 수평 + 주먹 좌/우로 | 펀치: 팔 빠르게 뻗기 | C: 자세 재보정</div>
     <div id="debug-info">--</div>
   </footer>
 
@@ -214,7 +214,6 @@
     let playerX = myStart.x;
     let playerZ = myStart.z;
     let rotationAngle = myStart.yaw;
-    let lunge = 0;
     const opponentPositions = {};
 
     cameraRig.position.set(playerX, 5, playerZ);
@@ -278,138 +277,506 @@
       }
     };
 
-    // ========== MediaPipe Hands ==========
-    let prevHands = {};
-    let punchTargetZL = -3.5, punchTargetZR = -3.5;
+    // ========== MediaPipe Pose — 상체 7노드 (얼굴 · 어깨 · 팔꿈치 · 손목) ==========
+    // 손가락 마디(21×2=42노드) 대신 어깨-팔-손의 큰 관절만 사용해 몸 전체 모션을 읽는다.
+    const P = { NOSE: 0, L_SH: 11, R_SH: 12, L_EL: 13, R_EL: 14, L_WR: 15, R_WR: 16 };
+    const NODE_IDS = [P.NOSE, P.L_SH, P.R_SH, P.L_EL, P.R_EL, P.L_WR, P.R_WR];
+    // 연결선 — NODE_IDS 배열 인덱스 기준 (0:코 1:왼어깨 2:오른어깨 3:왼팔꿈 4:오른팔꿈 5:왼손목 6:오른손목)
+    const SKELETON = [[0,1],[0,2],[1,2],[1,3],[3,5],[2,4],[4,6]];
+    const VIS_MIN = 0.5;        // 자세 판정용 랜드마크 신뢰도 하한
+    const ARM_VIS_MIN = 0.3;    // 펀치 판정용 하한 — 빠른 팔은 visibility가 잘 떨어져서 더 관대하게
+    const SHOULDER_M = 0.40;    // 어깨너비 실측 근사(m) — world 랜드마크가 없을 때의 미터 환산용
+
+    // 자세 지표(roll/pitch/shift)는 "어깨폭" 단위로 정규화 → 카메라 거리·체격에 불변.
+    // 시간 상수는 모두 ms/초 단위 → 포즈 추정 FPS가 바뀌어도 체감이 동일하게 유지된다.
+    const TUNE = {
+      // --- 좌/우 스텝: 어깨선 기울기(deg) ---
+      ROLL_ON: 12.0, ROLL_OFF: 7.0, ROLL_RANGE: 16.0,
+      ROLL_FLAT: 8.0,          // "어깨 평행" 판정 상한 → 앞/뒤·회전의 전제 조건
+      // --- 앞/뒤: 얼굴·주먹의 수직 이동 종합 점수 ---
+      // 사람은 앞으로는 크게 숙일 수 있지만 뒤로는 균형상 조금밖에 못 젖힌다.
+      // 대칭 임계값을 쓰면 후진만 임계값에 못 닿으므로 뒤쪽을 더 낮게 잡는다.
+      PITCH_ON: 0.16, PITCH_OFF: 0.10, PITCH_RANGE: 0.28,
+      PITCH_BACK_ON: 0.12, PITCH_BACK_OFF: 0.07, PITCH_BACK_RANGE: 0.20,
+      // --- 회전: 주먹의 좌/우 이동 ---
+      SHIFT_ON: 0.40, SHIFT_OFF: 0.24, SHIFT_RANGE: 0.45,
+      // --- 오검출 억제 (프레임 수가 아니라 시간 기준) ---
+      SMOOTH_TAU: 0.19,        // 자세 신호 EMA 시상수(초)
+      HOLD_ON_MS: 190,         // 상태 확정에 필요한 유지 시간
+      HOLD_OFF_MS: 120,
+      // --- 펀치 (3D world 랜드마크, 거리는 어깨폭 배수) ---
+      // 속도·뻗음이 같은 프레임에 겹치지 않아도 되도록 "창(window)" 안에서 누적 판정한다.
+      PUNCH_ARM: 1.2,          // 창을 여는 손목 속도 (m/s)
+      PUNCH_EXTEND: 0.45,      // 창을 여는 어깨→손목 거리 증가율 (m/s)
+      PUNCH_SPEED: 2.0,        // 창 안에서 도달해야 하는 최고 손목 속도 (m/s)
+      PUNCH_REACH_N: 0.95,     // 발사 시점의 팔 뻗음 (어깨폭 배수)
+      PUNCH_GROW_N: 0.30,      // 또는 창 시작 대비 뻗음 증가량 (훅·어퍼컷용)
+      PUNCH_WINDOW: 320,       // 창 유효 시간(ms)
+      PUNCH_CD: 400,           // 같은 팔 재발동 쿨다운(ms)
+      PUNCH_CD_ANY: 200,       // 양팔 공통 쿨다운(ms)
+      GUARD_HOLD_MS: 160,
+      // 펀치 잠금 — 이 시간 동안 이동·회전을 모두 정지하고 자세 신호도 갱신하지 않는다.
+      // 펀치는 몸통 회전(투영 어깨폭 축소)과 주먹 이동을 동반해 roll/pitch/shift를 크게 흔들기 때문에,
+      // 적용만 막고 신호를 계속 적분하면 잠금이 풀리는 순간 엉뚱한 방향으로 튀어나간다.
+      PUNCH_LOCK: 480,         // 최소 잠금 시간
+      PUNCH_LOCK_MAX: 1100,    // 팔이 아직 회수 중이면 여기까지 연장
+      // 어깨폭 추종 — 커질 때는 빠르게, 작아질 때는 느리게 (몸통 회전은 줄이기만 하므로)
+      SCALE_TAU_UP: 0.12,
+      SCALE_TAU_DOWN: 0.45,
+      CALIB_MS: 1800           // 중립 자세 캘리브레이션 시간
+    };
+
+    // --- 이동 속도 ---
+    const MOVE_SPEED = 14.0;   // 기울임 이동 (units/s, 강도 100% 기준)
+    // 회전은 느리고 짧게. 한 번의 제스처로 최대 ROT_LIMIT 까지만 돌 수 있고,
+    // 그 이상 돌려면 주먹을 중앙으로 되돌렸다가(제스처 종료) 다시 밀어야 한다.
+    // 계속 누적되면 제자리에서 한 바퀴 돌아버려 제어가 안 된다.
+    const ROT_SPEED  = 1.3;               // 회전 속도 (rad/s ≈ 75°/s)
+    const ROT_LIMIT  = Math.PI / 4;       // 제스처 1회당 최대 회전량 (45°)
+
+    // --- 근접 교전: 사거리 안에 들어오면 상대에게 붙어 공격 거리를 유지 ---
+    const ENGAGE_RANGE = 9.0;  // 이 안에 들어오면 교전 모드
+    const ENGAGE_DIST  = 6.0;  // 유지하려는 간격 (서버 콜라이더 5.6 바로 바깥)
+    const ENGAGE_PULL  = 7.0;  // 접근 속도 (units/s)
+
+    let latestPose = null;                 // 최근 랜드마크 (오버레이용)
     let currentAction = "IDLE", currentVelocity = 0.0;
-    let lastPunchTime = 0;
-    let leanX = 0, leanY = 0;
-    let neutralX = 0.5, neutralY = 0.4;
-    let calibFrames = 0;
-    let latestHandResults = null;
-    let lastDepthExt = 0, lastDepthVel = 0, lastVel3D = 0;
+    let lastSpeedKmh = 0;
 
-    const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-    hands.setOptions({ maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.4, minTrackingConfidence: 0.4 });
+    // 이동/회전 상태 (서로 독립적으로 판정)
+    let moveState = "NONE";                // NONE | FORWARD | BACK | LEFT | RIGHT
+    let rotState  = "NONE";                // NONE | ROT_LEFT | ROT_RIGHT
+    let moveIntensity = 0, rotIntensity = 0;
+    const moveVote = { cand: "NONE", since: 0 }, rotVote = { cand: "NONE", since: 0 };
 
-    hands.onResults((res) => {
-      const now = performance.now();
-      latestHandResults = res;
-      let detectedAction = "IDLE";
-      let maxVel = 0;
-      let maxDepthExt = 0, maxDepthVel = 0;
+    // 스무딩된 특징값 (sScale은 카메라 거리 전용으로 더 느리게 평활)
+    let sRoll = 0, sPitch = 0, sShift = 0, sScale = 0;
+    let guardSince = 0, guardActive = false;
+    let lastPunchAny = 0, lastRotInputT = 0, punchLocked = false;
+    let rotAnchor = null;                  // 회전 제스처 시작 시점의 yaw (±ROT_LIMIT 제한 기준)
+    let punchLabel = "", punchLabelT = 0;
+    let lastPoseT = 0, poseFps = 0;        // 실제 포즈 추정 주기 (튜닝 관찰용)
+    // HUD 표시용. pitch는 항별로 나눠 보여줘야 어느 신호가 부족한지 바로 알 수 있다.
+    const dbg = { L: { reachN: 0, speed: 0 }, R: { reachN: 0, speed: 0 },
+                  face: 0, fist: 0, body: 0, near: 0 };
 
-      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-        const handCount = res.multiHandLandmarks.length;
+    // 중립 자세 (기립 스탠스) 캘리브레이션 기준값
+    const neutral = { roll: 0, faceRel: -0.6, fistRel: 0.5, shMidY: 0.45, scale: 0.20,
+                      lwrOff: 0.35, rwrOff: -0.35, ready: false };
+    let calibN = 0, calibT0 = 0;
 
-        for (let i = 0; i < handCount; i++) {
-          const lm = res.multiHandLandmarks[i];
-          const hand = res.multiHandedness[i]?.label || (i===0 ? "Right" : "Left");
-          const p = prevHands[hand];
-          let vel = 0, vel3D = 0, depthVel = 0, depthExt = 0;
-          const wristZ = lm[0].z;
-          const idxTipZ = lm[8].z;
-          depthExt = wristZ - idxTipZ; // 양수 = 팔이 앞으로 뻗어짐 (카메라 기준)
+    // 팔별 운동학 상태. armed/armT/peak/reach0 = 펀치 창(window) 래치.
+    const arms = {
+      L: { x:0, y:0, z:0, reach:0, t:0, lastPunch:0, anim:0,
+           armed:false, armT:0, peak:0, reach0:0, pvx:0, pvy:0, pelbow:180,
+           lastSpeed:0, lastReachN:0 },
+      R: { x:0, y:0, z:0, reach:0, t:0, lastPunch:0, anim:0,
+           armed:false, armT:0, peak:0, reach0:0, pvx:0, pvy:0, pelbow:180 }
+    };
 
-          if (p && (now - p.t) > 20) {
-            const dt = (now - p.t) / 1000;
-            const dist = Math.hypot(lm[8].x - p.x, lm[8].y - p.y);
-            vel = (dist * 1.5 / dt) * 3.6;
+    const PUNCH_NAME = {
+      L: { STRAIGHT: "LEFT_JAB",    HOOK: "LEFT_HOOK",  UPPERCUT: "LEFT_UPPERCUT" },
+      R: { STRAIGHT: "RIGHT_CROSS", HOOK: "RIGHT_HOOK", UPPERCUT: "RIGHT_UPPERCUT" }
+    };
 
-            // Z 깊이 변화량 (스케일링: 50배로 XY와 비슷한 크기로)
-            const dz = (p.wz - wristZ) * 50;
-            vel3D = (Math.sqrt(dist * dist + dz * dz) * 1.5 / dt) * 3.6;
+    const clamp01 = v => (v < 0 ? 0 : (v > 1 ? 1 : v));
+    function visOK(lm, ids) { return ids.every(i => lm[i] && (lm[i].visibility === undefined || lm[i].visibility >= VIS_MIN)); }
+    function angleDeg(a, b, c) {           // b가 꼭짓점인 3D 내각
+      const abx = a.x - b.x, aby = a.y - b.y, abz = a.z - b.z;
+      const cbx = c.x - b.x, cby = c.y - b.y, cbz = c.z - b.z;
+      const d = Math.hypot(abx, aby, abz) * Math.hypot(cbx, cby, cbz);
+      if (d < 1e-6) return 180;
+      return Math.acos(Math.max(-1, Math.min(1, (abx * cbx + aby * cby + abz * cbz) / d))) * 180 / Math.PI;
+    }
 
-            // 깊이 속도 (Z만)
-            depthVel = (Math.abs(p.wz - wristZ) / dt) * 100;
-          }
-          prevHands[hand] = { x: lm[8].x, y: lm[8].y, z: lm[8].z, wz: wristZ, de: depthExt, t: now, dv: depthVel };
-          if (vel3D > maxVel && vel3D < 120) maxVel = vel3D;
-          if (Math.abs(depthExt) > Math.abs(maxDepthExt)) maxDepthExt = depthExt;
-          if (depthVel > maxDepthVel) maxDepthVel = depthVel;
+    function resetCalibration() { calibN = 0; neutral.ready = false; }
+    window.addEventListener('keydown', e => { if (e.code === 'KeyC') resetCalibration(); });
 
-          // 3D 속도 기반 펀치 분류
-          let punchType = null;
-          if (vel3D > 12 && (now - lastPunchTime) > 350) {
-            const absDepthExt = Math.abs(depthExt);
-            if (depthVel > 3.0 && absDepthExt > 0.03) {
-              punchType = (hand === "Left") ? "LEFT_HOOK" : "RIGHT_CROSS"; // 큰 Z변화 → 크로스/훅
-            } else if (depthVel > 1.5) {
-              punchType = (hand === "Left") ? "LEFT_JAB" : "RIGHT_UPPERCUT"; // 중간 Z변화 → 잽/어퍼컷
-            } else {
-              punchType = (hand === "Left") ? "LEFT_JAB" : "RIGHT_CROSS"; // 낮은 Z변화 → 기본
-            }
-            lastPunchTime = now; detectedAction = punchType; lunge = 0.6;
-            playWhoosh(); sendCombatPacket(punchType, vel3D);
-          }
-
-          // 글러브 3D 위치 갱신 (Z 깊이 반영)
-          const gloveZ = -3.5 + (depthExt * 8); // 팔 뻗을수록 앞쪽으로
-          if (hand === "Left") {
-            myLeftGlove.position.x = (lm[8].x - 0.5) * 4.0 - 1.5;
-            myLeftGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (punchType) { punchTargetZL = gloveZ; }
-          } else {
-            myRightGlove.position.x = (lm[8].x - 0.5) * 4.0 + 1.5;
-            myRightGlove.position.y = (0.5 - lm[8].y) * 3.0 - 1.2;
-            if (punchType) { punchTargetZR = gloveZ; }
-          }
-        }
-
-        // 손목 중점으로 lean 계산 (항상 - Pose 제거)
-        let sumWx = 0, sumWy = 0;
-        for (let i = 0; i < handCount; i++) {
-          sumWx += res.multiHandLandmarks[i][0].x;
-          sumWy += res.multiHandLandmarks[i][0].y;
-        }
-        const cx = sumWx / handCount;
-        const cy = sumWy / handCount;
-
-        if (calibFrames < 25) {
-          neutralX += (cx - neutralX) * 0.2;
-          neutralY += (cy - neutralY) * 0.2;
-          calibFrames++;
-        } else if (Math.abs(cx-neutralX) < 0.015 && Math.abs(cy-neutralY) < 0.015) {
-          neutralX += (cx - neutralX) * 0.005;
-          neutralY += (cy - neutralY) * 0.005;
-        }
-
-        leanX += ((cx - neutralX) - leanX) * 0.4;
-        // Y: 앞으로 숙이면 cy 증가 → (cy - neutralY) 양수 → leanY 양수 → 전진
-        leanY += ((cy - neutralY) - leanY) * 0.4;
-
-        // 가드
-        if (handCount >= 2) {
-          const l0 = res.multiHandLandmarks[0][0], l1 = res.multiHandLandmarks[1][0];
-          if (Math.hypot(l0.x-l1.x, l0.y-l1.y) < 0.25) detectedAction = "DUAL_GUARD";
-        }
-
-        actionText.innerText = detectedAction;
-        speedText.innerText = maxVel.toFixed(1);
-        currentAction = (detectedAction === "DUAL_GUARD") ? "DUAL_GUARD" : "IDLE";
-        currentVelocity = maxVel;
-        lastVel3D = maxVel;
-        lastDepthExt = maxDepthExt;
-        lastDepthVel = maxDepthVel;
-      } else {
-        actionText.innerText = "IDLE";
-        speedText.innerText = "0.0";
-        currentAction = "IDLE";
-        leanX *= 0.85; leanY *= 0.85;
+    // 어깨→팔꿈치→손목 운동학. 입력은 3D 미터 좌표.
+    // reachN은 어깨폭 배수 → 체격이 달라도 같은 임계값이 통한다.
+    function armKinematics(side, sh, el, wr, shW, now) {
+      const st = arms[side];
+      const reach = Math.hypot(wr.x - sh.x, wr.y - sh.y, wr.z - sh.z);  // 어깨→손목 거리(m)
+      const elbow = angleDeg(sh, el, wr);                               // 180°에 가까울수록 곧게 폄
+      let vx = 0, vy = 0, vz = 0, speed = 0, dReach = 0;
+      const dt = (now - st.t) / 1000;
+      if (st.t > 0 && dt > 0.008 && dt < 0.4) {
+        vx = (wr.x - st.x) / dt;
+        vy = (wr.y - st.y) / dt;
+        vz = (wr.z - st.z) / dt;
+        speed = Math.hypot(vx, vy, vz);
+        dReach = (reach - st.reach) / dt;
       }
+      st.x = wr.x; st.y = wr.y; st.z = wr.z; st.reach = reach; st.t = now;
+      // 다음 프레임의 펀치 잠금 판정에 쓴다 (팔이 아직 돌아오지 않았는지)
+      st.lastSpeed = speed; st.lastReachN = reach / shW;
+      return { side, reach, reachN: reach / shW, elbow, vx, vy, vz, speed, dReach };
+    }
+
+    // 손목 궤적 방향 + 팔꿈치 각도로 펀치 종류 판정
+    function classifyPunch(k) {
+      const s = Math.max(k.speed, 1e-3);
+      if (-k.vy / s > 0.48 && k.elbow < 155) return "UPPERCUT";      // 아래→위, 팔 접힘
+      if (Math.abs(k.vx) / s > 0.50 && k.elbow < 165) return "HOOK"; // 옆으로 휘두름
+      return "STRAIGHT";
+    }
+
+    // 펀치는 "빠르게 뻗기 시작"에서 창을 열고, 창이 유효한 동안 최고속도를 누적한 뒤
+    // 팔이 충분히 뻗은 시점에 발사한다.
+    // 단일 프레임에 속도·뻗음이 동시에 걸려야 했던 이전 방식은, 포즈 샘플이 성긴 구간에서
+    // "속도 최고인 프레임은 아직 덜 뻗었고 / 다 뻗은 프레임은 이미 감속" 이라 양쪽 다 놓쳤다.
+    function tryPunch(k, now) {
+      const st = arms[k.side];
+
+      // (1) 창 열기
+      if (k.speed > TUNE.PUNCH_ARM && k.dReach > TUNE.PUNCH_EXTEND && !st.armed) {
+        st.armed = true; st.armT = now; st.peak = 0; st.reach0 = k.reachN;
+      }
+      if (!st.armed) return null;
+      if (now - st.armT > TUNE.PUNCH_WINDOW) { st.armed = false; return null; }
+
+      // (2) 창 안에서 최고 속도와 그 순간의 궤적 방향을 기록
+      if (k.speed > st.peak) { st.peak = k.speed; st.pvx = k.vx; st.pvy = k.vy; st.pelbow = k.elbow; }
+
+      // (3) 발사 — 최고속도 도달 + (충분히 뻗음 또는 창 시작 대비 뻗음 증가)
+      if (st.peak < TUNE.PUNCH_SPEED) return null;
+      if (k.reachN < TUNE.PUNCH_REACH_N && (k.reachN - st.reach0) < TUNE.PUNCH_GROW_N) return null;
+      if (now - st.lastPunch < TUNE.PUNCH_CD || now - lastPunchAny < TUNE.PUNCH_CD_ANY) {
+        st.armed = false; return null;
+      }
+
+      st.armed = false;
+      st.lastPunch = now;
+      const kind = classifyPunch({ speed: st.peak, vx: st.pvx, vy: st.pvy, elbow: st.pelbow });
+      return { action: PUNCH_NAME[k.side][kind], speed: st.peak };
+    }
+
+    function vote(box, cand, cur, now) {
+      if (cand !== box.cand) { box.cand = cand; box.since = now; }
+      const need = (cand === "NONE") ? TUNE.HOLD_OFF_MS : TUNE.HOLD_ON_MS;
+      return (now - box.since >= need) ? cand : cur;
+    }
+
+    function relaxStates() {
+      moveVote.cand = "NONE"; moveVote.since = 0;
+      rotVote.cand = "NONE";  rotVote.since = 0;
+      moveState = "NONE"; rotState = "NONE";
+      moveIntensity *= 0.8; rotIntensity *= 0.8;
+      guardSince = 0; guardActive = false;
+      punchLocked = false; rotAnchor = null;
+      arms.L.armed = false; arms.R.armed = false;
+    }
+
+    // 이동(앞/뒤/좌/우)과 회전을 각각 독립적으로 확정한다.
+    function updateStates(now, dtPose) {
+      // 펀치 중에는 어느 방향으로도 새 이동/회전 상태가 생기지 않게 한다.
+      // (펀치 동작이 어깨선·주먹 위치를 흔들어 앞/뒤·좌/우·회전 모두를 오검출시킨다)
+      const locked = punchLocked;
+
+      // --- 이동: 어깨 기울기가 우선, 어깨가 평행할 때만 앞/뒤를 본다 ---
+      let mCand = "NONE";
+      if (!locked) {
+        const rollOn = (moveState === "LEFT" || moveState === "RIGHT") ? TUNE.ROLL_OFF : TUNE.ROLL_ON;
+        if (sRoll > rollOn) mCand = "LEFT";
+        else if (sRoll < -rollOn) mCand = "RIGHT";
+        else if (Math.abs(sRoll) < TUNE.ROLL_FLAT) {
+          const fwdOn  = (moveState === "FORWARD") ? TUNE.PITCH_OFF : TUNE.PITCH_ON;
+          const backOn = (moveState === "BACK")    ? TUNE.PITCH_BACK_OFF : TUNE.PITCH_BACK_ON;
+          if (sPitch > fwdOn) mCand = "FORWARD";
+          else if (sPitch < -backOn) mCand = "BACK";
+        } else {
+          // 평행(8°)과 기울임(12°) 사이의 중간 구간 — 상태를 흔들지 않고 유지
+          mCand = (moveState === "FORWARD" || moveState === "BACK") ? moveState : "NONE";
+        }
+      }
+      moveState = vote(moveVote, mCand, moveState, now);
+
+      // --- 회전: 어깨 평행 + 주먹 좌/우 이동. 이동 상태와 무관하게 판정 ---
+      let rCand = "NONE";
+      if (!locked && Math.abs(sRoll) < TUNE.ROLL_FLAT) {
+        const sOn = (rotState !== "NONE") ? TUNE.SHIFT_OFF : TUNE.SHIFT_ON;
+        if (sShift > sOn) rCand = "ROT_LEFT";
+        else if (sShift < -sOn) rCand = "ROT_RIGHT";
+      }
+      rotState = vote(rotVote, rCand, rotState, now);
+
+      // --- 강도: 임계값을 넘은 만큼 비례 (0~1), 급변 방지용 EMA (시상수 0.13s) ---
+      const ka = 1 - Math.exp(-dtPose / 0.13);
+      let mi = 0;
+      if (locked) mi = 0;   // 펀치 중에는 남아 있는 상태의 강도도 즉시 죽인다
+      else if (moveState === "LEFT" || moveState === "RIGHT") mi = clamp01((Math.abs(sRoll) - TUNE.ROLL_OFF) / TUNE.ROLL_RANGE);
+      else if (moveState === "FORWARD") mi = clamp01((sPitch - TUNE.PITCH_OFF) / TUNE.PITCH_RANGE);
+      else if (moveState === "BACK") mi = clamp01((-sPitch - TUNE.PITCH_BACK_OFF) / TUNE.PITCH_BACK_RANGE);
+      moveIntensity += (mi - moveIntensity) * ka;
+
+      const ri = (locked || rotState === "NONE") ? 0 : clamp01((Math.abs(sShift) - TUNE.SHIFT_OFF) / TUNE.SHIFT_RANGE);
+      rotIntensity += (ri - rotIntensity) * ka;
+      if (rotState !== "NONE") lastRotInputT = now;
+    }
+
+    const pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+    // 펀치는 신전 구간이 0.15초 안팎이라 샘플이 성기면 그냥 놓친다.
+    // 정확도보다 시간 해상도가 중요하므로 lite 모델로 프레임을 최대한 확보한다.
+    // (자세 지표는 EMA + 히스테리시스로 평활되므로 lite의 노이즈에 둔감하다)
+    pose.setOptions({
+      modelComplexity: 0,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults((res) => {
+      const now = performance.now();
+      const lm = res.poseLandmarks;
+      const dtPose = lastPoseT ? Math.min(Math.max((now - lastPoseT) / 1000, 0.008), 0.4) : 0.033;
+      if (lastPoseT) poseFps += (1000 / Math.max(now - lastPoseT, 1) - poseFps) * 0.1;
+      lastPoseT = now;
+
+      // 펀치 직후에는 자세 신호를 전혀 갱신하지 않고 직전 값을 유지한다.
+      // 펀치 동작 자체가 어깨선·주먹 위치·투영 어깨폭을 크게 흔들기 때문에, 적용(이동)만 막고
+      // 신호를 계속 적분하면 잠금이 풀리는 순간 그 사이 쌓인 값이 그대로 튀어나가 뒤/옆으로 밀린다.
+      //
+      // 고정 시간만으로는 부족하다. 뻗은 팔이 아직 돌아오는 중인데 잠금이 풀리면 그 자세가 그대로
+      // 신호에 들어간다. 그래서 팔이 실제로 회수될 때까지(속도가 죽고 뻗음이 줄 때까지) 연장한다.
+      const sincePunch = now - lastPunchAny;
+      const armsBusy = Math.max(arms.L.lastSpeed, arms.R.lastSpeed) > 0.9
+                    || Math.max(arms.L.lastReachN, arms.R.lastReachN) > 1.00;
+      const postureLocked = sincePunch < TUNE.PUNCH_LOCK
+                         || (sincePunch < TUNE.PUNCH_LOCK_MAX && armsBusy);
+      punchLocked = postureLocked;   // updateStates / animate 가 같은 판정을 쓰도록 공유
+
+      if (!lm || !visOK(lm, [P.NOSE, P.L_SH, P.R_SH])) {
+        latestPose = null;
+        sRoll *= 0.8; sPitch *= 0.8; sShift *= 0.8;
+        relaxStates();
+        currentAction = "IDLE"; currentVelocity = 0; lastSpeedKmh = 0;
+        actionText.innerText = "NO POSE";
+        speedText.innerText = "0.0";
+        return;
+      }
+      latestPose = lm;
+
+      const nose = lm[P.NOSE], lsh = lm[P.L_SH], rsh = lm[P.R_SH];
+      const lwr = lm[P.L_WR], rwr = lm[P.R_WR];
+      const wristOK = visOK(lm, [P.L_EL, P.R_EL, P.L_WR, P.R_WR]);
+      // 펀치는 팔별로 따로 판정 — 반대쪽 팔이 가려져도 치는 팔은 인식되어야 한다.
+      const armVis = {
+        L: lm[P.L_SH] && lm[P.L_EL] && lm[P.L_WR] && (lm[P.L_WR].visibility ?? 1) >= ARM_VIS_MIN && (lm[P.L_EL].visibility ?? 1) >= ARM_VIS_MIN,
+        R: lm[P.R_SH] && lm[P.R_EL] && lm[P.R_WR] && (lm[P.R_WR].visibility ?? 1) >= ARM_VIS_MIN && (lm[P.R_EL].visibility ?? 1) >= ARM_VIS_MIN
+      };
+
+      // 어깨폭을 길이 단위로 사용 (카메라 거리 무관)
+      const shDX = lsh.x - rsh.x, shDY = lsh.y - rsh.y;
+      const scale = Math.max(Math.hypot(shDX, shDY), 0.06);
+      const shMidX = (lsh.x + rsh.x) / 2, shMidY = (lsh.y + rsh.y) / 2;
+
+      // 카메라 거리 지표. 펀치 잠금 중에는 아예 갱신하지 않는다 — 어깨를 넣어 치면 투영 어깨폭이
+      // 줄어드는데, 그 값이 들어가면 "멀어짐 = 후진"으로 오인된다.
+      //
+      // 잠금이 못 잡는 경우(임계값에 못 미친 헛펀치, 몸통을 트는 다른 동작)까지 대비해
+      // 비대칭으로 추종한다. 몸통 회전은 투영 어깨폭을 **줄이기만** 하므로,
+      // 커질 때는 빠르게 / 작아질 때는 느리게 따라가면 회전 오염만 골라서 걸러낼 수 있다.
+      // 진짜 후진은 자세를 유지하는 동작이라 느린 추종으로도 결국 반영된다.
+      if (sScale === 0) sScale = scale;
+      else if (!postureLocked) {
+        const tau = (scale > sScale) ? TUNE.SCALE_TAU_UP : TUNE.SCALE_TAU_DOWN;
+        sScale += (scale - sScale) * (1 - Math.exp(-dtPose / tau));
+      }
+
+      // (1) 어깨선 기울기 — +면 왼쪽 어깨가 내려감 = 몸을 자기 왼쪽으로 기울임
+      const rollRaw = Math.atan2(shDY, Math.abs(shDX)) * 180 / Math.PI;
+
+      // (2) 얼굴 / 주먹의 위치
+      // 길이 단위로는 순간 어깨폭이 아니라 평활된 sScale을 쓴다.
+      // 몸통이 돌면 순간 어깨폭이 줄어드는데, 그걸 분모로 쓰면 얼굴·주먹 비율까지 함께 부풀려져
+      // 방향 판정이 오염된다.
+      const uScale = Math.max(sScale, 0.06);
+      const wrMidY = wristOK ? (lwr.y + rwr.y) / 2 : shMidY + neutral.fistRel * uScale;
+      const faceRel = (nose.y - shMidY) / uScale;   // 어깨선 대비 얼굴 높이 (아래로 갈수록 +)
+      const fistRel = (wrMidY - shMidY) / uScale;   // 어깨선 대비 주먹 높이
+      const lwrOff  = wristOK ? (lwr.x - shMidX) / uScale : neutral.lwrOff;
+      const rwrOff  = wristOK ? (rwr.x - shMidX) / uScale : neutral.rwrOff;
+
+      // 중립 자세 캘리브레이션 (접속 후 CALIB_MS 동안, C 키로 재실행)
+      if (!neutral.ready) {
+        if (calibN === 0) calibT0 = now;
+        const a = (calibN === 0) ? 1 : 0.2;
+        neutral.roll    += (rollRaw - neutral.roll) * a;
+        neutral.faceRel += (faceRel - neutral.faceRel) * a;
+        neutral.fistRel += (fistRel - neutral.fistRel) * a;
+        neutral.shMidY  += (shMidY  - neutral.shMidY)  * a;
+        neutral.scale   += (sScale  - neutral.scale)   * a;
+        neutral.lwrOff  += (lwrOff  - neutral.lwrOff)  * a;
+        neutral.rwrOff  += (rwrOff  - neutral.rwrOff)  * a;
+        calibN++;
+        neutral.ready = (now - calibT0 >= TUNE.CALIB_MS && calibN >= 10);
+      }
+
+      // 가드: 양 손목이 어깨선 위 + 얼굴 근처
+      let guardNow = false;
+      if (wristOK) {
+        const dl = Math.hypot(lwr.x - nose.x, lwr.y - nose.y) / scale;
+        const dr = Math.hypot(rwr.x - nose.x, rwr.y - nose.y) / scale;
+        guardNow = (lwr.y < shMidY + 0.15 * scale) && (rwr.y < shMidY + 0.15 * scale) && dl < 1.0 && dr < 1.0;
+      }
+      if (!guardNow) guardSince = 0;
+      else if (guardSince === 0) guardSince = now;
+      guardActive = guardSince > 0 && (now - guardSince) >= TUNE.GUARD_HOLD_MS;
+
+      // --- 앞/뒤 기울임 점수: 얼굴·주먹이 내려가면 +(전진), 올라가면 −(후진) ---
+      // 가드 중에는 주먹이 얼굴 높이로 올라가므로 주먹 항의 가중치를 얼굴로 넘긴다.
+      //
+      // 네 항의 역할이 서로 다르다.
+      //  - 얼굴/주먹(어깨선 대비): 방향에 반대칭. 턱을 당기면 +, 들면 −. 판별의 기본축.
+      //  - 상체가 화면에서 내려간 정도: 방향엔 **대칭**(어느 쪽으로 기울든 머리는 낮아진다)이지만
+      //    전진에서 가장 크고 안정적인 신호다. 이것만 쓰면 후진이 상쇄되고,
+      //    빼버리면 이번엔 전진이 임계값에 못 닿는다. 그래서 가중치를 낮춰 보조로만 쓴다.
+      //  - 어깨폭(카메라 거리): 가까워지면 +, 멀어지면 −. 반대칭이라 후진을 성립시키는 항.
+      //    단 몸통이 돌아가면(펀치) 투영 폭이 줄어 오염되므로 PUNCH_LOCK 중에는 얼린다.
+      //
+      // 어깨폭은 별도로 더 느리게 평활한다. 펀치할 때 어깨를 넣으면 몸통이 돌아가면서
+      // 투영 어깨폭이 순간적으로 줄어드는데, 그대로 쓰면 "멀어짐 = 후진"으로 오인된다.
+      // 실제 앞/뒤 기울임은 수백 ms에 걸쳐 유지되므로 느린 평활을 통과하지만,
+      // 펀치의 짧은 과도 성분은 크게 감쇠된다.
+      const wFace = guardActive ? 0.70 : 0.45;
+      const wFist = guardActive ? 0.00 : 0.25;
+      const faceDrop  = faceRel - neutral.faceRel;                 // 얼굴이 어깨 대비 아래로
+      const fistDrop  = fistRel - neutral.fistRel;                 // 주먹이 어깨 대비 아래로
+      const bodyDrop  = (shMidY - neutral.shMidY) / uScale;        // 상체가 화면에서 아래로
+      const nearDelta = (sScale - neutral.scale) / neutral.scale;  // 카메라 쪽으로 다가옴
+      // 얼굴·주먹의 어깨선 대비 상하 이동만이 방향을 결정한다. 이 신호는 몸통이 돌아도
+      // 거의 변하지 않아 가장 신뢰할 수 있다.
+      const dirCore = wFace * faceDrop + wFist * fistDrop;
+      // 나머지 두 항은 **보조**다. 방향이 확실히 정해졌을 때(conf), 그리고 그 방향과
+      // 부호가 같을 때만 기여한다.
+      //   - 상체 하강: 방향에 대칭(어느 쪽으로 기울든 내려감) → 전진 쪽으로만
+      //   - 어깨폭: 몸통 회전만으로도 줄어든다 → 얼굴·주먹이 동의할 때만
+      // 이렇게 하면 "몸통만 트는 동작"(감지 안 된 헛펀치 포함)은 dirCore가 0 근처라
+      // conf가 낮아 어깨폭 항이 걸러지고, 뒤로 밀리지 않는다.
+      const conf = clamp01(Math.abs(dirCore) / 0.05);
+      const back = dirCore < 0;
+      const nearAligned = ((nearDelta < 0) === back) ? 1.20 * nearDelta : 0;
+      const bodyAligned = back ? 0 : 0.30 * Math.max(0, bodyDrop);
+      const pitchRaw = dirCore + conf * (nearAligned + bodyAligned);
+      if (!postureLocked) {
+        dbg.face = wFace * faceDrop;   dbg.fist = wFist * fistDrop;
+        dbg.body = conf * bodyAligned; dbg.near = conf * nearAligned;
+      }
+
+      // --- 주먹 좌/우 이동: 양 손목이 같은 방향으로 함께 움직일 때만 인정 ---
+      const dL = lwrOff - neutral.lwrOff, dR = rwrOff - neutral.rwrOff;
+      const coherent = wristOK && ((dL > 0 && dR > 0) || (dL < 0 && dR < 0))
+                    && Math.min(Math.abs(dL), Math.abs(dR)) > TUNE.SHIFT_ON * 0.45;
+      const shiftRaw = coherent ? (dL + dR) / 2 : 0;
+
+      if (!postureLocked) {
+        // 프레임 수가 아니라 경과 시간 기준 EMA → 포즈 FPS가 변해도 반응 속도가 같다
+        const SM = 1 - Math.exp(-dtPose / TUNE.SMOOTH_TAU);
+        sRoll  += ((rollRaw - neutral.roll) - sRoll) * SM;
+        sPitch += (pitchRaw - sPitch) * SM;
+        sShift += (shiftRaw - sShift) * SM;
+      }
+
+      // --- 펀치 판정 ---
+      // 팔 운동학은 3D world 랜드마크(미터, 골반 중심 원점)로 계산한다.
+      // 정면 펀치는 화면상에서 팔이 짧아 보이므로(foreshortening) 2D 좌표만으로는 뻗음을 구분할 수 없다.
+      const wl = res.poseWorldLandmarks;
+      const m2 = SHOULDER_M / scale;   // world 랜드마크가 없을 때의 폴백 환산 계수
+      const M = (wl && wl.length > P.R_WR)
+        ? (i => wl[i])
+        : (i => ({ x: (lm[i].x - shMidX) * m2, y: (lm[i].y - shMidY) * m2, z: lm[i].z * m2 }));
+
+      // 팔 길이도 어깨폭 배수로 정규화 (world 좌표 기준)
+      const wsh = Math.max(Math.hypot(M(P.L_SH).x - M(P.R_SH).x,
+                                      M(P.L_SH).y - M(P.R_SH).y,
+                                      M(P.L_SH).z - M(P.R_SH).z), 0.15);
+
+      const kL = armKinematics("L", M(P.L_SH), M(P.L_EL), M(P.L_WR), wsh, now);
+      const kR = armKinematics("R", M(P.R_SH), M(P.R_EL), M(P.R_WR), wsh, now);
+      dbg.L.reachN = kL.reachN; dbg.L.speed = kL.speed;
+      dbg.R.reachN = kR.reachN; dbg.R.speed = kR.speed;
+
+      // 양 손목이 같은 방향·비슷한 속도로 함께 쓸리면 회전 제스처 → 펀치로 보지 않는다.
+      // (펀치는 한쪽 팔만 빠르다)
+      const vL = Math.abs(kL.vx), vR = Math.abs(kR.vx);
+      const sweeping = kL.vx * kR.vx > 0
+                    && Math.min(vL, vR) > 0.8
+                    && Math.min(vL, vR) > 0.6 * Math.max(vL, vR);
+
+      // 가드 중이라도 한쪽 팔이 뻗어 나가면 펀치다 — 복싱 스탠스는 항상 가드에 가깝기 때문에
+      // 가드로 펀치를 막으면 정작 스탠스를 제대로 잡은 사람이 펀치를 못 낸다.
+      let punch = null;
+      if (neutral.ready && !sweeping) {
+        const a = armVis.L ? tryPunch(kL, now) : null;
+        const b = armVis.R ? tryPunch(kR, now) : null;
+        punch = (a && b) ? (a.speed >= b.speed ? a : b) : (a || b);
+      }
+      lastSpeedKmh = Math.max(kL.speed, kR.speed) * 3.6;
+
+      if (punch) {
+        lastPunchAny = now;
+        arms[punch.action.startsWith("LEFT") ? "L" : "R"].anim = 1;
+        punchLabel = punch.action; punchLabelT = now;
+        playWhoosh();
+        sendCombatPacket(punch.action, punch.speed * 3.6);
+      }
+
+      updateStates(now, dtPose);
+
+      // 자세가 중립 범위에 오래 머물면 기준값을 천천히 따라가게 해 자세 드리프트를 흡수 (시상수 ~8초)
+      //
+      // 반드시 !postureLocked 여야 한다. 잠금 중에는 sRoll/sPitch/sShift가 얼어 있어 아래 조건이
+      // 항상 참이 되는데, 갱신에 쓰는 rollRaw/faceRel/shMidY는 펀치로 흔들린 생값이다.
+      // 그대로 두면 펀치할 때마다 중립 기준이 펀치 자세 쪽으로 끌려가고,
+      // 그 결과 진짜 정지 자세가 "뒤로 젖힌 것"으로 읽혀 뒤로 밀린다.
+      if (!postureLocked && neutral.ready && !punch
+          && Math.abs(sRoll) < 3 && Math.abs(sPitch) < 0.05 && Math.abs(sShift) < 0.12) {
+        const a = 1 - Math.exp(-dtPose / 8);
+        neutral.roll    += (rollRaw - neutral.roll) * a;
+        neutral.faceRel += (faceRel - neutral.faceRel) * a;
+        neutral.shMidY  += (shMidY  - neutral.shMidY) * a;
+        neutral.scale   += (sScale  - neutral.scale) * a;
+        if (wristOK && !guardActive) {
+          neutral.fistRel += (fistRel - neutral.fistRel) * a;
+          neutral.lwrOff  += (lwrOff  - neutral.lwrOff) * a;
+          neutral.rwrOff  += (rwrOff  - neutral.rwrOff) * a;
+        }
+      }
+
+      // 1인칭 글러브 좌표 (웹캠 캔버스는 좌우 반전 표시이므로 미러 좌표 사용)
+      if (wristOK) {
+        myLeftGlove.position.x  = ((1 - lwr.x) - 0.5) * 4.5 - 1.4;
+        myLeftGlove.position.y  = (0.55 - lwr.y) * 3.4 - 1.0;
+        myRightGlove.position.x = ((1 - rwr.x) - 0.5) * 4.5 + 1.4;
+        myRightGlove.position.y = (0.55 - rwr.y) * 3.4 - 1.0;
+      }
+
+      // HUD 라벨: 펀치는 0.5초간 유지, 그 외에는 현재 자세 상태
+      if (punch || now - punchLabelT < 500) actionText.innerText = punchLabel;
+      else if (guardActive) actionText.innerText = "DUAL_GUARD";
+      else if (moveState !== "NONE") actionText.innerText = moveState;
+      else if (rotState !== "NONE") actionText.innerText = rotState;
+      else actionText.innerText = neutral.ready ? "IDLE" : "CALIBRATING";
+      speedText.innerText = lastSpeedKmh.toFixed(1);
+
+      // 펀치 직후에는 가드를 보고하지 않는다. 겹치면 arena의 포즈가 가드로 덮이고
+      // 서버에서도 공격 중에 방어 데미지 감소가 적용된다.
+      currentAction = (guardActive && (now - lastPunchAny) >= TUNE.PUNCH_LOCK) ? "DUAL_GUARD" : "IDLE";
+      currentVelocity = lastSpeedKmh;
     });
 
     // Camera
-    let handBusy = false, lastHandT = 0;
+    let poseBusy = false, lastSendT = 0;
     const cameraUtils = new Camera(videoElement, {
       onFrame: async () => {
         if (!videoElement || videoElement.readyState < 2) return;
         const now = performance.now();
-        if (handBusy) return;
-        if (now - lastHandT < 80) return; // ~12fps hands
-        handBusy = true; lastHandT = now;
-        try { await hands.send({image: videoElement}); } catch(e) {}
-        finally { handBusy = false; }
+        if (poseBusy) return;
+        if (now - lastSendT < 30) return; // 최대 ~33fps — 실제 주기는 모델 속도에 맞춰 자동 조절
+        poseBusy = true; lastSendT = now;
+        try { await pose.send({image: videoElement}); } catch(e) {}
+        finally { poseBusy = false; }
       },
       width: 480, height: 360
     });
@@ -448,36 +815,55 @@
           canvasCtx.clearRect(0,0,canvasElement.width,canvasElement.height);
           canvasCtx.drawImage(videoElement,0,0,canvasElement.width,canvasElement.height);
 
-          // AR 네온 글로우 이펙트
-          const glowIntensity = Math.min(lastVel3D / 50, 1.0); // 속도에 비례한 글로우 강도
-          const glowPulse = 1 + glowIntensity * 0.6; // 펄싱 효과
+          // AR 네온 글로우 상체 스켈레톤 (7노드)
+          if (latestPose) {
+            const W = canvasElement.width, H = canvasElement.height;
+            const pts = NODE_IDS.map(i => latestPose[i]);
+            const glow = Math.min(lastSpeedKmh / 15, 1.0);   // 펀치 속도에 비례한 글로우
+            const pulse = 1 + glow * 0.5;
+            canvasCtx.lineCap = 'round';
 
-          if (latestHandResults && latestHandResults.multiHandLandmarks) {
-            for (let i=0; i<latestHandResults.multiHandLandmarks.length; i++) {
-              const lm = latestHandResults.multiHandLandmarks[i];
-              const h = latestHandResults.multiHandedness[i]?.label || "Right";
-              const hColor = h==="Left"?"#00e5ff":userColor;
-
-              // 랜드마크 네온 글로우
-              canvasCtx.shadowColor = hColor;
-              canvasCtx.shadowBlur = 20 + glowIntensity * 25;
-              drawLandmarks(canvasCtx, lm, {
-                color: '#ffffff',
-                fillColor: hColor,
-                radius: 4 * glowPulse,
-                lineWidth: 2
-              });
-
-              // 커넥터 네온 글로우
-              canvasCtx.shadowColor = hColor;
-              canvasCtx.shadowBlur = 15 + glowIntensity * 15;
-              drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {
-                color: hColor,
-                lineWidth: 2.5 * glowPulse
-              });
-
-              canvasCtx.shadowBlur = 0; // 다음 렌더를 위해 리셋
+            // 어깨 수평 기준선 — 기울기 판정 축을 눈으로 확인할 수 있게
+            const ls = pts[1], rs = pts[2];
+            if (ls && rs) {
+              const mx = (ls.x + rs.x) / 2 * W, my = (ls.y + rs.y) / 2 * H;
+              const half = Math.abs(ls.x - rs.x) * W * 0.75;
+              canvasCtx.setLineDash([8, 8]);
+              canvasCtx.strokeStyle = (Math.abs(sRoll) < TUNE.ROLL_FLAT) ? 'rgba(0,255,102,0.55)' : 'rgba(255,51,102,0.75)';
+              canvasCtx.lineWidth = 2;
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(mx - half, my); canvasCtx.lineTo(mx + half, my);
+              canvasCtx.stroke();
+              canvasCtx.setLineDash([]);
             }
+
+            // 뼈대
+            canvasCtx.shadowColor = userColor;
+            canvasCtx.shadowBlur = 14 + glow * 20;
+            canvasCtx.strokeStyle = userColor;
+            canvasCtx.lineWidth = 5 * pulse;
+            SKELETON.forEach(([a, b]) => {
+              const p = pts[a], q = pts[b];
+              if (!p || !q) return;
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(p.x * W, p.y * H);
+              canvasCtx.lineTo(q.x * W, q.y * H);
+              canvasCtx.stroke();
+            });
+
+            // 노드 — 어깨는 흰색(기준축), 손목은 크게
+            canvasCtx.shadowBlur = 18 + glow * 22;
+            canvasCtx.strokeStyle = '#ffffff';
+            canvasCtx.lineWidth = 2;
+            pts.forEach((p, i) => {
+              if (!p) return;
+              canvasCtx.fillStyle = (i === 1 || i === 2) ? '#ffffff' : userColor;
+              canvasCtx.beginPath();
+              canvasCtx.arc(p.x * W, p.y * H, (i >= 5 ? 11 : 8) * pulse, 0, Math.PI * 2);
+              canvasCtx.fill();
+              canvasCtx.stroke();
+            });
+            canvasCtx.shadowBlur = 0;
           }
           canvasCtx.restore();
         }
@@ -487,7 +873,7 @@
       let moveX = 0, moveZ = 0;
 
       // 키보드 화살표
-      const KB_SPEED = 8;
+      const KB_SPEED = 16;
       if (keys['ArrowUp']) {
         moveX -= Math.sin(rotationAngle) * KB_SPEED * dt;
         moveZ -= Math.cos(rotationAngle) * KB_SPEED * dt;
@@ -503,46 +889,64 @@
         rotationAngle -= 2.5 * dt;
       }
 
-      // Lean 이동 (웹캠)
-      const LEAN_DEAD = 0.012;
-      const LEAN_SPEED = 10;
-      const LEAN_RANGE = 0.12;
+      const fx = -Math.sin(rotationAngle), fz = -Math.cos(rotationAngle);   // 정면
+      const lx = -Math.cos(rotationAngle), lz =  Math.sin(rotationAngle);   // 왼쪽
 
-      if (Math.abs(leanX) > LEAN_DEAD) {
-        const intensity = Math.min((Math.abs(leanX) - LEAN_DEAD) / LEAN_RANGE, 1.0);
-        const sign = leanX > 0 ? 1 : -1;
-        moveX -= Math.cos(rotationAngle) * sign * intensity * LEAN_SPEED * dt;
-        moveZ += Math.sin(rotationAngle) * sign * intensity * LEAN_SPEED * dt;
-      }
-      if (Math.abs(leanY) > LEAN_DEAD) {
-        const intensity = Math.min((Math.abs(leanY) - LEAN_DEAD) / LEAN_RANGE, 1.0);
-        const sign = leanY > 0 ? 1 : -1;
-        moveX -= Math.sin(rotationAngle) * sign * intensity * LEAN_SPEED * dt;
-        moveZ -= Math.cos(rotationAngle) * sign * intensity * LEAN_SPEED * dt;
-      }
-
-      // 펀치 lunge
-      if (lunge > 0.005) {
-        moveX -= Math.sin(rotationAngle) * lunge;
-        moveZ -= Math.cos(rotationAngle) * lunge;
-        lunge *= 0.75;
-      } else { lunge = 0; }
-
-      // 자동 회전 (좌우 화살표 미입력 시에만)
-      if (!keys['ArrowLeft'] && !keys['ArrowRight']) {
-        let nearDist = Infinity, nearAngle = rotationAngle;
-        Object.keys(opponentPositions).forEach(id => {
-          const t = opponentPositions[id];
-          if (t) {
-            const ddx = t.x - playerX, ddz = t.z - playerZ;
-            const dist = Math.hypot(ddx, ddz);
-            if (dist < nearDist) { nearDist = dist; nearAngle = Math.atan2(-ddx, -ddz); }
-          }
-        });
-        if (nearDist < Infinity) {
-          const diff = Math.atan2(Math.sin(nearAngle - rotationAngle), Math.cos(nearAngle - rotationAngle));
-          rotationAngle += diff * 3.0 * dt;
+      // 가장 가까운 상대 탐색 (자동 접근 + 자동 조준에 공통으로 사용)
+      let nearDist = Infinity, nearAngle = rotationAngle, nearDX = 0, nearDZ = 0;
+      Object.keys(opponentPositions).forEach(id => {
+        const t = opponentPositions[id];
+        if (!t) return;
+        const ddx = t.x - playerX, ddz = t.z - playerZ;
+        const dist = Math.hypot(ddx, ddz);
+        if (dist < nearDist) {
+          nearDist = dist; nearAngle = Math.atan2(-ddx, -ddz);
+          nearDX = ddx; nearDZ = ddz;
         }
+      });
+      const engaged = nearDist < ENGAGE_RANGE;
+
+      // 펀치 중에는 캐릭터를 고정한다 — 이동과 펀치를 동시에 하지 않는다
+      const punchFreeze = punchLocked;
+
+      // 제스처가 끝나면 앵커를 풀어, 다음 제스처가 새로 45°를 쓸 수 있게 한다
+      if (rotState === "NONE") rotAnchor = null;
+
+      if (!punchFreeze) {
+        // 몸 기울임 이동 (웹캠) — 어깨 기울기 = 좌/우, 얼굴·주먹 상하 = 앞/뒤
+        if (moveState !== "NONE" && moveIntensity > 0.02) {
+          const s = MOVE_SPEED * moveIntensity * dt;
+          if (moveState === "FORWARD")    { moveX += fx * s;        moveZ += fz * s; }
+          else if (moveState === "BACK")  { moveX -= fx * s * 0.85; moveZ -= fz * s * 0.85; }
+          else if (moveState === "LEFT")  { moveX += lx * s;        moveZ += lz * s; }
+          else if (moveState === "RIGHT") { moveX -= lx * s;        moveZ -= lz * s; }
+        }
+
+        // 회전 (웹캠) — 이동과 독립적으로 적용.
+        // 제스처가 시작된 시점의 yaw를 앵커로 잡고 ±ROT_LIMIT 안으로 제한한다.
+        if (rotState !== "NONE" && rotIntensity > 0.02) {
+          if (rotAnchor === null) rotAnchor = rotationAngle;
+          const step = (rotState === "ROT_LEFT" ? 1 : -1) * ROT_SPEED * rotIntensity * dt;
+          const off = rotationAngle + step - rotAnchor;
+          const wrapped = Math.atan2(Math.sin(off), Math.cos(off));
+          rotationAngle = rotAnchor + Math.max(-ROT_LIMIT, Math.min(ROT_LIMIT, wrapped));
+        }
+
+        // 근접 교전 — 사거리 안에 들어오면 상대에게 붙어 공격 거리를 유지한다.
+        // 뒤로 빼는 중이면 적용하지 않는다(후퇴 의사를 덮어쓰지 않도록).
+        if (engaged && moveState !== "BACK" && nearDist > ENGAGE_DIST) {
+          const pull = Math.min(nearDist - ENGAGE_DIST, 1.5) / 1.5 * ENGAGE_PULL * dt;
+          moveX += (nearDX / nearDist) * pull;
+          moveZ += (nearDZ / nearDist) * pull;
+        }
+      }
+
+      // 자동 조준 회전 — 수동 회전 입력 중이거나 직후(1.2s)에는 억제.
+      // 교전 중에는 상대를 놓치지 않도록 더 빠르게 정렬한다(펀치 판정이 시야각에 의존).
+      const manualRot = keys['ArrowLeft'] || keys['ArrowRight'] || rotState !== "NONE" || (now - lastRotInputT) < 1200;
+      if (!manualRot && nearDist < Infinity) {
+        const diff = Math.atan2(Math.sin(nearAngle - rotationAngle), Math.cos(nearAngle - rotationAngle));
+        rotationAngle += diff * (engaged ? 6.0 : 1.5) * dt;
       }
 
       playerX += moveX;
@@ -553,11 +957,11 @@
       cameraRig.position.set(playerX, 5, playerZ);
       cameraRig.rotation.y = rotationAngle;
 
-      // 펀치 회수 애니메이션
-      if (punchTargetZL < -3.5) { myLeftGlove.position.z = punchTargetZL; punchTargetZL += 0.6; }
-      else { myLeftGlove.position.z = -3.5; }
-      if (punchTargetZR < -3.5) { myRightGlove.position.z = punchTargetZR; punchTargetZR += 0.6; }
-      else { myRightGlove.position.z = -3.5; }
+      // 펀치 뻗음 → 회수 애니메이션 (-z가 정면)
+      arms.L.anim = Math.max(0, arms.L.anim - dt * 3.5);
+      arms.R.anim = Math.max(0, arms.R.anim - dt * 3.5);
+      myLeftGlove.position.z  = -3.5 - arms.L.anim * 3.2;
+      myRightGlove.position.z = -3.5 - arms.R.anim * 3.2;
 
       // 상대 보간
       const osmooth = 1 - Math.exp(-dt * 12);
@@ -572,11 +976,23 @@
       });
 
       // HUD - 디버그 정보 표시
-      const lxP = (leanX*100).toFixed(1), lyP = (leanY*100).toFixed(1);
-      const cal = calibFrames < 25 ? `CAL ${calibFrames}/25` : "OK";
-      const handsOk = latestHandResults && latestHandResults.multiHandLandmarks && latestHandResults.multiHandLandmarks.length > 0;
-      moveHud.innerText = `Lean: ${lxP}%,${lyP}% [${cal}]\nPos: ${playerX.toFixed(1)},${playerZ.toFixed(1)}\nHands: ${handsOk ? latestHandResults.multiHandLandmarks.length : 'none'} | V3D:${lastVel3D.toFixed(1)}\nZ-ext:${lastDepthExt.toFixed(3)} Z-vel:${lastDepthVel.toFixed(1)}`;
-      debugInfo.innerText = `move: ${moveX.toFixed(4)},${moveZ.toFixed(4)} | rot: ${rotationAngle.toFixed(2)} | lunge: ${lunge.toFixed(3)}`;
+      const cal = neutral.ready ? "OK" : "CALIBRATING";
+      moveHud.innerText =
+        `Stance: ${moveState} ${(moveIntensity*100)|0}%\n` +
+        `Turn  : ${rotState} ${(rotIntensity*100)|0}%` +
+        (rotAnchor === null ? "\n"
+          : ` ${(Math.atan2(Math.sin(rotationAngle-rotAnchor), Math.cos(rotationAngle-rotAnchor))*180/Math.PI).toFixed(0)}/45deg\n`) +
+        `Roll  : ${sRoll.toFixed(1)}deg  Pitch: ${sPitch.toFixed(2)}\n` +
+        `  pitch= face ${dbg.face.toFixed(2)} + fist ${dbg.fist.toFixed(2)}` +
+        ` + body ${dbg.body.toFixed(2)} + near ${dbg.near.toFixed(2)}\n` +
+        `  need : fwd +${TUNE.PITCH_ON}  back -${TUNE.PITCH_BACK_ON}\n` +
+        `FistX : ${sShift.toFixed(2)}  Guard: ${guardActive ? "ON" : "--"}\n` +
+        `ArmL  : reach ${dbg.L.reachN.toFixed(2)} v ${dbg.L.speed.toFixed(1)}${arms.L.armed ? " *" : ""}\n` +
+        `ArmR  : reach ${dbg.R.reachN.toFixed(2)} v ${dbg.R.speed.toFixed(1)}${arms.R.armed ? " *" : ""}\n` +
+        `Pose  : ${latestPose ? "7 nodes" : "none"} ${poseFps.toFixed(0)}fps [${cal}]\n` +
+        `Pos   : ${playerX.toFixed(1)}, ${playerZ.toFixed(1)}`;
+      debugInfo.innerText = `move: ${moveX.toFixed(4)},${moveZ.toFixed(4)} | rot: ${rotationAngle.toFixed(2)}` +
+        ` | near: ${nearDist === Infinity ? '--' : nearDist.toFixed(1)}${engaged ? ' ENGAGED' : ''}${punchFreeze ? ' | PUNCH-FREEZE' : ''}`;
 
       renderer.render(scene, camera);
     }

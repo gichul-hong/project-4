@@ -149,6 +149,8 @@ class ArenaGameManager:
             "LEFT_JAB":        (12, 10.0, 0.3),
             "RIGHT_CROSS":     (16, 10.0, 0.3),
             "LEFT_HOOK":       (18, 10.0, 0.2),
+            "RIGHT_HOOK":      (18, 10.0, 0.2),
+            "LEFT_UPPERCUT":   (25,  8.0, 0.3),
             "RIGHT_UPPERCUT":  (25,  8.0, 0.3),
             "ENERGY_WAVE":     (40, 30.0, 0.3),
         }
@@ -308,7 +310,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
             # 타격 이벤트 판정 (양손 액션 포함)
             hit_results = None
-            if action in ["JAB_STRAIGHT", "LEFT_JAB", "RIGHT_CROSS", "LEFT_HOOK", "RIGHT_UPPERCUT", "ENERGY_WAVE"]:
+            if action in ["JAB_STRAIGHT", "LEFT_JAB", "RIGHT_CROSS", "LEFT_HOOK", "RIGHT_HOOK",
+                          "LEFT_UPPERCUT", "RIGHT_UPPERCUT", "ENERGY_WAVE"]:
                 hit_results = manager.process_attack(client_id, action, velocity)
 
             payload["client_id"] = client_id

@@ -145,9 +145,9 @@
     function setAction(action) {
       if (!action) return;
       S.action = action;
-      if (action === 'RIGHT_CROSS' || action === 'JAB_STRAIGHT' || action === 'RIGHT_UPPERCUT') {
+      if (action === 'RIGHT_CROSS' || action === 'JAB_STRAIGHT' || action === 'RIGHT_UPPERCUT' || action === 'RIGHT_HOOK') {
         S.punch = 1; S.punchSide = 'right';
-      } else if (action === 'LEFT_JAB' || action === 'LEFT_HOOK') {
+      } else if (action === 'LEFT_JAB' || action === 'LEFT_HOOK' || action === 'LEFT_UPPERCUT') {
         S.punch = 1; S.punchSide = 'left';
       } else if (action === 'DUAL_GUARD' || action === 'TWO_HAND_GUARD') {
         S.guard = 1;
@@ -168,18 +168,20 @@
       if (speed > 0.4) S.walkPhase += dt * speed * 1.3;
       else S.walkPhase *= 0.9;
 
-      // 감쇠: 펀치는 빠르게 뻗고(0.80) 빠르게 회수
-      S.punch *= 0.80; if (S.punch < 0.03) S.punch = 0;
-      S.guard *= 0.92; if (S.guard < 0.03) S.guard = 0;
+      // 감쇠는 프레임 수가 아니라 시간 기준 (렌더 FPS가 달라도 같은 길이로 보이도록)
+      S.punch = Math.max(0, S.punch - dt / 0.30);   // 펀치 ~0.3초
+      S.guard = Math.max(0, S.guard - dt / 0.50);   // 가드 ~0.5초 (100ms마다 갱신되므로 유지됨)
 
-      // 목표 포즈 결정
+      // 목표 포즈 결정 — 펀치가 가드보다 우선.
+      // 가드를 우선하면, 클라이언트가 10Hz로 보내는 DUAL_GUARD가 S.guard를 계속 1로 되살려
+      // 펀치 포즈가 화면에 아예 나타나지 않는다. (복싱 스탠스는 상시 가드 판정)
       let target;
-      if (S.guard > 0.3) target = POSES.guard;
-      else if (S.punch > 0.2) target = (S.punchSide === 'right') ? POSES.punchR : POSES.punchL;
+      if (S.punch > 0.2) target = (S.punchSide === 'right') ? POSES.punchR : POSES.punchL;
+      else if (S.guard > 0.3) target = POSES.guard;
       else target = POSES.neutral;
 
       // 부드러운 lerp — 펀치(공격) 순간엔 빠르게, 회수/대기 시엔 부드럽게
-      const punching = (S.punch > 0.2 && S.guard <= 0.3);
+      const punching = S.punch > 0.2;
       const k = punching ? 0.55 : 0.16;
       S.lSX += (target.lSX - S.lSX) * k;
       S.lSZ += (target.lSZ - S.lSZ) * k;
@@ -213,7 +215,7 @@
       legR.knee.rotation.x = 0.08 + Math.max(0, Math.sin(S.walkPhase) * 0.5) * moving;
 
       // 가드 실드 시각화
-      shield.material.opacity += ((S.guard > 0.3 ? 0.85 : 0) - shield.material.opacity) * 0.2;
+      shield.material.opacity += (((S.guard > 0.3 && !punching) ? 0.85 : 0) - shield.material.opacity) * 0.2;
     }
 
     return {
