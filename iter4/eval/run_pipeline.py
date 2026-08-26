@@ -257,6 +257,7 @@ def main():
     ap.add_argument("--labels", default=str(SCRIPT_DIR / "video" / "benchmark_labels.json"), help="Ground truth labels JSON")
     ap.add_argument("--output-dir", default=None, help="Custom output directory (default: iter4/eval/runs/<version>)")
     ap.add_argument("--force-extract", action="store_true", help="Force re-extract landmarks")
+    ap.add_argument("--overwrite", action="store_true", help="Explicitly allow overwriting an existing version run")
     args = ap.parse_args()
 
     # 버전 결정
@@ -276,6 +277,15 @@ def main():
         out_dir = Path(args.output_dir).resolve()
     else:
         out_dir = SCRIPT_DIR / "runs" / version_tag
+
+    # 🔒 불변성 보호 가드 (기존 평가 버전 임의 덮어쓰기 방지)
+    if (out_dir / "metrics.json").exists() and not args.overwrite:
+        print(f"🛑 [보호 가드] 버전 '{version_tag}'의 평가 결과가 이미 존재합니다 ({out_dir}).")
+        print("   과거 이터레이션 결과의 불변성을 유지하기 위해 덮어쓰기를 중단합니다.")
+        print(f"   새로운 버전을 평가하려면 `--version v4_...`와 같이 새로운 버전명을 지정하세요.")
+        print("   (불가피하게 재평가하려면 `--overwrite` 옵션을 추가하세요.)")
+        sys.exit(1)
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     jsonl_path = video_path.with_name(f"{video_path.stem}_landmarks.jsonl")
