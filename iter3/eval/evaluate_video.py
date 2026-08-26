@@ -17,10 +17,34 @@ import math
 import statistics
 from pathlib import Path
 
-import cv2
-import mediapipe as mp
-from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python import vision
+# cv2/mediapipe 는 **영상을 디코딩할 때만** 필요하다.
+# --landmarks 로 캐시된 JSONL 을 재생할 때는 한 줄도 쓰지 않는데,
+# 최상단에서 import 하면 무거운 CV 스택이 없는 환경에서 채점조차 못 돌린다.
+# (mediapipe 는 Python 3.13 휠이 아직 없다.) 그래서 필요한 시점에 불러온다.
+cv2 = None
+mp = None
+BaseOptions = None
+vision = None
+
+
+def _require_cv():
+    """영상 경로에서만 호출한다. 없으면 무엇을 설치해야 하는지 알려주고 끝낸다."""
+    global cv2, mp, BaseOptions, vision
+    if cv2 is not None:
+        return
+    try:
+        import cv2 as _cv2
+        import mediapipe as _mp
+        from mediapipe.tasks.python import BaseOptions as _BaseOptions
+        from mediapipe.tasks.python import vision as _vision
+    except ImportError as exc:
+        raise SystemExit(
+            "영상 처리에는 opencv-python 과 mediapipe 가 필요합니다 "
+            f"({exc})." + chr(10) +
+            "  pip install opencv-python mediapipe" + chr(10) +
+            "이미 뽑아 둔 랜드마크가 있다면 --landmarks <jsonl> 로 영상 없이 채점할 수 있습니다."
+        ) from exc
+    cv2, mp, BaseOptions, vision = _cv2, _mp, _BaseOptions, _vision
 
 from scoring import iter_landmarks_jsonl, load_labels_file, score_predictions
 
@@ -551,6 +575,7 @@ def main():
             print("--annotate는 영상 입력에서만 지원")
             raise SystemExit(1)
         annotate_path = out_dir / "annotated.mp4" if args.annotate == "AUTO" else Path(args.annotate)
+        _require_cv()
         cap_meta = cv2.VideoCapture(str(video_path))
         src_fps = (cap_meta.get(cv2.CAP_PROP_FPS) or 30.0) / max(args.stride, 1)
         width = int(cap_meta.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -592,6 +617,7 @@ def main():
             writer.write(frame)
 
     if video_path:
+        _require_cv()
         options = vision.PoseLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path)),
             running_mode=vision.RunningMode.VIDEO,

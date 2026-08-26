@@ -24,7 +24,12 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from extract_landmarks import DEFAULT_MODEL as POSE_MODEL
+# extract_landmarks 는 cv2/mediapipe 를 끌고 온다. Stage 1 은 랜드마크 캐시가 있으면
+# 통째로 건너뛰는데, 여기서 import 하면 캐시가 있어도 CV 스택 없이는 파이프라인이 시작조차 못 한다.
+try:
+    from extract_landmarks import DEFAULT_MODEL as POSE_MODEL
+except ImportError:
+    POSE_MODEL = SCRIPT_DIR / "models" / "pose_landmarker_full.task"
 from scoring import load_labels_file, score_predictions
 
 
