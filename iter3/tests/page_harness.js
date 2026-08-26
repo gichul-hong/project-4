@@ -48,6 +48,22 @@ const ck = (n, c, x) => {
   const noisy = f.logs.filter(l => !isNoise(l) && /error/i.test(l.kind));
   ck('예상치 못한 에러 로그 없음', noisy.length === 0, noisy.map(l => l.text).join(' / ') || 'none');
 
+  // 펀치 판정이 정말 punch_core.js 를 통해 도는지 (하니스와 같은 모듈인지) 확인
+  const pc = await f.evaluate(`(() => ({
+    lib: typeof window.PunchCore,
+    factory: typeof (window.PunchCore || {}).createPunchCore,
+    instance: typeof punchCore,
+    hasTryPunch: typeof (punchCore || {}).tryPunch,
+    merged: TUNE.PUNCH_SPEED,
+    coreSpeed: punchCore.tune.PUNCH_SPEED,
+    armsShared: punchCore.arms === arms
+  }))()`);
+  ck('punch_core.js 가 로드된다', pc.lib === 'object' && pc.factory === 'function');
+  ck('런타임이 판정기 인스턴스를 갖는다', pc.instance === 'object' && pc.hasTryPunch === 'function');
+  ck('TUNE 에 펀치 상수가 병합된다', pc.merged === pc.coreSpeed && pc.merged > 0,
+     `TUNE.PUNCH_SPEED=${pc.merged}`);
+  ck('팔 상태를 코어와 공유한다', pc.armsShared === true);
+
   console.log('');
   console.log('--- 1인칭 HUD ---');
   // HP 바

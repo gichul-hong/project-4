@@ -13,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <!-- Face Mesh 는 "얼굴 등록" 캡처 순간에만 돌린다. 게임 중에는 Pose 만 돌아 FPS 영향이 없다. -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="/static/punch_core.js?v=1"></script>
   <script src="/static/face3d.js?v=3"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
@@ -650,6 +651,9 @@
     const ARM_VIS_MIN = 0.3;    // 펀치 판정용 하한 — 빠른 팔은 visibility가 잘 떨어져서 더 관대하게
     const SHOULDER_M = 0.40;    // 어깨너비 실측 근사(m) — world 랜드마크가 없을 때의 미터 환산용
 
+    // 펀치 판정기 — static/punch_core.js (런타임·평가기 공용 단일 소스)
+    const punchCore = window.PunchCore.createPunchCore();
+
     // 자세 지표(roll/pitch/shift)는 "어깨폭" 단위로 정규화 → 카메라 거리·체격에 불변.
     // 시간 상수는 모두 ms/초 단위 → 포즈 추정 FPS가 바뀌어도 체감이 동일하게 유지된다.
     const TUNE = {
@@ -672,37 +676,19 @@
       SMOOTH_TAU: 0.19,        // 자세 신호 EMA 시상수(초)
       HOLD_ON_MS: 190,         // 상태 확정에 필요한 유지 시간
       HOLD_OFF_MS: 120,
-      // --- 펀치 (3D world 랜드마크, 거리는 어깨폭 배수) ---
-      // 속도·뻗음이 같은 프레임에 겹치지 않아도 되도록 "창(window)" 안에서 누적 판정한다.
-      // 잽은 "짧고 빠른" 펀치라 스트레이트 기준으로 잡으면 걸리지 않는다.
-      // 리치가 짧고(어깨폭 0.9배 남짓) 신전 시간도 0.11초 안팎이라 최고 속도가 낮게 찍힌다.
-      // punch_harness.js 가 완화와 오검출 사이의 균형을 잡아 준다.
-      PUNCH_ARM: 1.0,          // 창을 여는 손목 속도 (m/s)
-      PUNCH_EXTEND: 0.40,      // 창을 여는 어깨→손목 거리 증가율 (m/s)
-      PUNCH_SPEED: 1.6,        // 창 안에서 도달해야 하는 최고 손목 속도 (m/s)
-      PUNCH_REACH_N: 0.88,     // 발사 시점의 팔 뻗음 (어깨폭 배수)
-      PUNCH_GROW_N: 0.28,      // 또는 창 시작 대비 뻗음 증가량 (훅·어퍼컷용)
-      PUNCH_WINDOW: 380,       // 창 유효 시간(ms)
-      PUNCH_CD: 400,           // 같은 팔 재발동 쿨다운(ms)
-      PUNCH_CD_ANY: 200,       // 양팔 공통 쿨다운(ms)
+      // --- 펀치 ---
+      // 펀치 판정 상수는 여기 없다. static/punch_core.js 가 단일 소스이며
+      // 아래 Object.assign 으로 이 TUNE 에 병합된다 (기존 TUNE.PUNCH_* 참조는 그대로 동작).
+      // 런타임과 평가 하니스가 같은 파일을 쓰게 하려는 것 — 값을 두 곳에 두면 조용히 어긋난다.
       GUARD_HOLD_MS: 160,
-      // 펀치 잠금 — 이 시간 동안 이동·회전을 모두 정지하고 자세 신호도 갱신하지 않는다.
-      // 펀치는 몸통 회전(투영 어깨폭 축소)과 주먹 이동을 동반해 roll/pitch/shift를 크게 흔들기 때문에,
-      // 적용만 막고 신호를 계속 적분하면 잠금이 풀리는 순간 엉뚱한 방향으로 튀어나간다.
-      PUNCH_LOCK: 180,         // 최소 잠금 시간
-      //
-      // 480 -> 180. 480ms는 "팔이 오염을 일으키는 구간"보다 훨씬 길었다.
-      // 실측 로그에서 펀치 간격이 최소 0.20초 / 중앙값 0.25초로 들어오는데,
-      // 하한이 480ms면 연타 중에는 잠금이 한 번도 풀리지 않아 이동이 완전히 죽는다.
-      // 실제 보호는 아래 PUNCH_LOCK_MAX + armsBusy(팔이 아직 나가 있는지)가 담당한다.
-      // 하한은 "팔이 확실히 나가 있는 최소 시간"만 덮으면 된다.
-      PUNCH_MOVE_DECAY: 1.2,   // 잠금 중 유지되는 이동 의사의 감쇠 시상수(s)
-      PUNCH_LOCK_MAX: 1100,    // 팔이 아직 회수 중이면 여기까지 연장
       // 어깨폭 추종 — 커질 때는 빠르게, 작아질 때는 느리게 (몸통 회전은 줄이기만 하므로)
       SCALE_TAU_UP: 0.12,
       SCALE_TAU_DOWN: 0.45,
       CALIB_MS: 1800           // 중립 자세 캘리브레이션 시간
     };
+    // 펀치 상수를 병합한다. 이후 TUNE.PUNCH_LOCK 등 기존 참조가 그대로 동작하되,
+    // 값의 출처는 punch_core.js 한 곳뿐이다.
+    Object.assign(TUNE, punchCore.tune);
 
     // --- 이동 속도 ---
     const MOVE_SPEED = 14.0;   // 기울임 이동 (units/s, 강도 100% 기준)
@@ -746,93 +732,19 @@
                       lwrOff: 0.35, rwrOff: -0.35, ready: false };
     let calibN = 0, calibT0 = 0;
 
-    // 팔별 운동학 상태. armed/armT/peak/reach0 = 펀치 창(window) 래치.
-    const arms = {
-      L: { x:0, y:0, z:0, reach:0, t:0, lastPunch:0, anim:0,
-           armed:false, armT:0, peak:0, reach0:0, pvx:0, pvy:0, pelbow:180,
-           lastSpeed:0, lastReachN:0 },
-      R: { x:0, y:0, z:0, reach:0, t:0, lastPunch:0, anim:0,
-           armed:false, armT:0, peak:0, reach0:0, pvx:0, pvy:0, pelbow:180 }
-    };
-
-    const PUNCH_NAME = {
-      L: { STRAIGHT: "LEFT_JAB",    HOOK: "LEFT_HOOK",  UPPERCUT: "LEFT_UPPERCUT" },
-      R: { STRAIGHT: "RIGHT_CROSS", HOOK: "RIGHT_HOOK", UPPERCUT: "RIGHT_UPPERCUT" }
-    };
+    // 팔별 펀치 상태는 punchCore 가 들고 있다 (punchCore.arms).
+    // 여기서 쓰는 건 1인칭 글러브 뻗음 애니메이션 값뿐 — 판정과 무관한 순수 표현용이다.
+    const arms = punchCore.arms;
+    const armAnim = { L: 0, R: 0 };
 
     const clamp01 = v => (v < 0 ? 0 : (v > 1 ? 1 : v));
     function visOK(lm, ids) { return ids.every(i => lm[i] && (lm[i].visibility === undefined || lm[i].visibility >= VIS_MIN)); }
-    function angleDeg(a, b, c) {           // b가 꼭짓점인 3D 내각
-      const abx = a.x - b.x, aby = a.y - b.y, abz = a.z - b.z;
-      const cbx = c.x - b.x, cby = c.y - b.y, cbz = c.z - b.z;
-      const d = Math.hypot(abx, aby, abz) * Math.hypot(cbx, cby, cbz);
-      if (d < 1e-6) return 180;
-      return Math.acos(Math.max(-1, Math.min(1, (abx * cbx + aby * cby + abz * cbz) / d))) * 180 / Math.PI;
-    }
 
     function resetCalibration() { calibN = 0; neutral.ready = false; }
     window.addEventListener('keydown', e => { if (e.code === 'KeyC') resetCalibration(); });
 
-    // 어깨→팔꿈치→손목 운동학. 입력은 3D 미터 좌표.
-    // reachN은 어깨폭 배수 → 체격이 달라도 같은 임계값이 통한다.
-    function armKinematics(side, sh, el, wr, shW, now) {
-      const st = arms[side];
-      const reach = Math.hypot(wr.x - sh.x, wr.y - sh.y, wr.z - sh.z);  // 어깨→손목 거리(m)
-      const elbow = angleDeg(sh, el, wr);                               // 180°에 가까울수록 곧게 폄
-      let vx = 0, vy = 0, vz = 0, speed = 0, dReach = 0;
-      const dt = (now - st.t) / 1000;
-      if (st.t > 0 && dt > 0.008 && dt < 0.4) {
-        vx = (wr.x - st.x) / dt;
-        vy = (wr.y - st.y) / dt;
-        vz = (wr.z - st.z) / dt;
-        speed = Math.hypot(vx, vy, vz);
-        dReach = (reach - st.reach) / dt;
-      }
-      st.x = wr.x; st.y = wr.y; st.z = wr.z; st.reach = reach; st.t = now;
-      // 다음 프레임의 펀치 잠금 판정에 쓴다 (팔이 아직 돌아오지 않았는지)
-      st.lastSpeed = speed; st.lastReachN = reach / shW;
-      return { side, reach, reachN: reach / shW, elbow, vx, vy, vz, speed, dReach };
-    }
-
-    // 손목 궤적 방향 + 팔꿈치 각도로 펀치 종류 판정
-    function classifyPunch(k) {
-      const s = Math.max(k.speed, 1e-3);
-      // 임계값을 조금 올렸다. 잽을 완화하면 약간 비스듬한 잽이 훅/어퍼로 새기 쉬운데,
-      // 실제 훅/어퍼는 이 값을 훌쩍 넘긴다(하니스 실측 0.78~0.80). 여유가 충분하다.
-      if (-k.vy / s > 0.55 && k.elbow < 150) return "UPPERCUT";      // 아래→위, 팔 접힘
-      if (Math.abs(k.vx) / s > 0.56 && k.elbow < 158) return "HOOK"; // 옆으로 휘두름
-      return "STRAIGHT";
-    }
-
-    // 펀치는 "빠르게 뻗기 시작"에서 창을 열고, 창이 유효한 동안 최고속도를 누적한 뒤
-    // 팔이 충분히 뻗은 시점에 발사한다.
-    // 단일 프레임에 속도·뻗음이 동시에 걸려야 했던 이전 방식은, 포즈 샘플이 성긴 구간에서
-    // "속도 최고인 프레임은 아직 덜 뻗었고 / 다 뻗은 프레임은 이미 감속" 이라 양쪽 다 놓쳤다.
-    function tryPunch(k, now) {
-      const st = arms[k.side];
-
-      // (1) 창 열기
-      if (k.speed > TUNE.PUNCH_ARM && k.dReach > TUNE.PUNCH_EXTEND && !st.armed) {
-        st.armed = true; st.armT = now; st.peak = 0; st.reach0 = k.reachN;
-      }
-      if (!st.armed) return null;
-      if (now - st.armT > TUNE.PUNCH_WINDOW) { st.armed = false; return null; }
-
-      // (2) 창 안에서 최고 속도와 그 순간의 궤적 방향을 기록
-      if (k.speed > st.peak) { st.peak = k.speed; st.pvx = k.vx; st.pvy = k.vy; st.pelbow = k.elbow; }
-
-      // (3) 발사 — 최고속도 도달 + (충분히 뻗음 또는 창 시작 대비 뻗음 증가)
-      if (st.peak < TUNE.PUNCH_SPEED) return null;
-      if (k.reachN < TUNE.PUNCH_REACH_N && (k.reachN - st.reach0) < TUNE.PUNCH_GROW_N) return null;
-      if (now - st.lastPunch < TUNE.PUNCH_CD || now - lastPunchAny < TUNE.PUNCH_CD_ANY) {
-        st.armed = false; return null;
-      }
-
-      st.armed = false;
-      st.lastPunch = now;
-      const kind = classifyPunch({ speed: st.peak, vx: st.pvx, vy: st.pvy, elbow: st.pelbow });
-      return { action: PUNCH_NAME[k.side][kind], speed: st.peak };
-    }
+    // 펀치 운동학·분류·발동은 전부 punchCore 로 옮겼다 (static/punch_core.js).
+    // 이 파일에는 판정 로직이 남아 있지 않다 — 하니스가 같은 파일을 import 해 검증한다.
 
     function vote(box, cand, cur, now) {
       if (cand !== box.cand) { box.cand = cand; box.since = now; }
@@ -848,7 +760,7 @@
       moveIntensity *= 0.8; rotIntensity *= 0.8;
       guardSince = 0; guardActive = false;
       punchLocked = false; rotAnchor = null;
-      arms.L.armed = false; arms.R.armed = false;
+      punchCore.disarm();
     }
 
     // 이동(앞/뒤/좌/우)과 회전을 각각 독립적으로 확정한다.
@@ -945,10 +857,9 @@
       // 고정 시간만으로는 부족하다. 뻗은 팔이 아직 돌아오는 중인데 잠금이 풀리면 그 자세가 그대로
       // 신호에 들어간다. 그래서 팔이 실제로 회수될 때까지(속도가 죽고 뻗음이 줄 때까지) 연장한다.
       const sincePunch = now - lastPunchAny;
-      const armsBusy = Math.max(arms.L.lastSpeed, arms.R.lastSpeed) > 0.9
-                    || Math.max(arms.L.lastReachN, arms.R.lastReachN) > 1.00;
-      const postureLocked = sincePunch < TUNE.PUNCH_LOCK
-                         || (sincePunch < TUNE.PUNCH_LOCK_MAX && armsBusy);
+      // 잠금 판정도 punchCore 소유 — 임계값(PUNCH_LOCK / PUNCH_LOCK_MAX)과 "팔이 아직
+      // 나가 있는지" 판정이 한 곳에 모여 있어야 런타임과 평가기가 같은 결론을 낸다.
+      const postureLocked = punchCore.isLocked(now);
       punchLocked = postureLocked;   // updateStates / animate 가 같은 판정을 쓰도록 공유
 
       if (!lm || !visOK(lm, [P.NOSE, P.L_SH, P.R_SH])) {
@@ -1097,8 +1008,8 @@
                                       M(P.L_SH).y - M(P.R_SH).y,
                                       M(P.L_SH).z - M(P.R_SH).z), 0.15);
 
-      const kL = armKinematics("L", M(P.L_SH), M(P.L_EL), M(P.L_WR), wsh, now);
-      const kR = armKinematics("R", M(P.R_SH), M(P.R_EL), M(P.R_WR), wsh, now);
+      const kL = punchCore.kinematics("L", M(P.L_SH), M(P.L_EL), M(P.L_WR), wsh, now);
+      const kR = punchCore.kinematics("R", M(P.R_SH), M(P.R_EL), M(P.R_WR), wsh, now);
       dbg.L.reachN = kL.reachN; dbg.L.speed = kL.speed;
       dbg.R.reachN = kR.reachN; dbg.R.speed = kR.speed;
 
@@ -1113,15 +1024,15 @@
       // 가드로 펀치를 막으면 정작 스탠스를 제대로 잡은 사람이 펀치를 못 낸다.
       let punch = null;
       if (neutral.ready && !sweeping) {
-        const a = armVis.L ? tryPunch(kL, now) : null;
-        const b = armVis.R ? tryPunch(kR, now) : null;
+        const a = armVis.L ? punchCore.tryPunch(kL, now) : null;
+        const b = armVis.R ? punchCore.tryPunch(kR, now) : null;
         punch = (a && b) ? (a.speed >= b.speed ? a : b) : (a || b);
       }
       lastSpeedKmh = Math.max(kL.speed, kR.speed) * 3.6;
 
       if (punch) {
-        lastPunchAny = now;
-        arms[punch.action.startsWith("LEFT") ? "L" : "R"].anim = 1;
+        lastPunchAny = punchCore.getLastPunchAny();   // 코어가 발동 시각의 단일 소스
+        armAnim[punch.action.startsWith("LEFT") ? "L" : "R"] = 1;
         // 반드시 패킷 전송 전에 — 서버는 이 패킷의 yaw로 명중을 판정한다.
         const aimed = snapAimForPunch();
         punchLabel = punch.action + (aimed ? ` → ${aimed.id.replace('client_', 'P')}` : '');
@@ -1676,13 +1587,13 @@
       if (now - lastMiniDraw >= 50) { lastMiniDraw = now; drawMinimap(); }
 
       // 펀치 뻗음 → 회수 애니메이션 (-z가 정면)
-      arms.L.anim = Math.max(0, arms.L.anim - dt * 3.5);
-      arms.R.anim = Math.max(0, arms.R.anim - dt * 3.5);
-      myLeftGlove.position.z  = -3.5 - arms.L.anim * 3.2;
-      myRightGlove.position.z = -3.5 - arms.R.anim * 3.2;
+      armAnim.L = Math.max(0, armAnim.L - dt * 3.5);
+      armAnim.R = Math.max(0, armAnim.R - dt * 3.5);
+      myLeftGlove.position.z  = -3.5 - armAnim.L * 3.2;
+      myRightGlove.position.z = -3.5 - armAnim.R * 3.2;
       // 팔꿈치는 손목의 절반만 나간다 — 이 차이가 "뻗음/접힘"으로 읽힌다
-      myArms.L.elbow.position.z = -1.9 - arms.L.anim * 1.5;
-      myArms.R.elbow.position.z = -1.9 - arms.R.anim * 1.5;
+      myArms.L.elbow.position.z = -1.9 - armAnim.L * 1.5;
+      myArms.R.elbow.position.z = -1.9 - armAnim.R * 1.5;
 
       // 어깨 → 팔꿈치 → 글러브 를 실제로 이어 그린다 (훅/어퍼의 형태가 보이게)
       layBone(myArms.L.upper, myArms.L.shoulder, myArms.L.elbow.position);

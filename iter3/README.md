@@ -284,12 +284,16 @@ iter2/
 
 ## 🔗 7. 관련 문서
 
-- [`tests/`](./tests/) — 헤드리스 검증 하니스 8종 (142개 항목)
+- [`server/static/punch_core.js`](./server/static/punch_core.js) — **펀치 판정 단일 소스**.
+  브라우저(`<script>`)와 Node(`require`)가 같은 파일을 쓴다. DOM·THREE·MediaPipe 의존이 없어
+  웹캠 없이 궤적만 넣으면 그대로 판정이 돈다. 판정 로직을 HTML 안에 두면 평가기가 로직을
+  베끼거나(어긋남) 원문을 텍스트로 오려내야(취약) 하므로 파일로 분리했다.
+- [`tests/`](./tests/) — 헤드리스 검증 하니스 9종 (190개 항목)
   ```
   cd iter3/tests
   node pose_harness.js && node effects_harness.js && node aim_harness.js
   node move_harness.js && node face_harness.js && node punch_harness.js
-  node page_harness.js && node match_harness.js      # 서버가 떠 있어야 함
+  node page_harness.js && node match_harness.js && node face_page_harness.js   # 서버 필요
   ```
   앞 6종은 THREE 최소 스텁 위에서 로직만 보고, 뒤 2종은 **헤드리스 Chrome/Edge 로 페이지를 실제로 띄워**
   런타임 예외·렌더 여부·경기 규칙을 확인한다 (npm 설치 불필요 — Node 22 내장 fetch/WebSocket 사용).
