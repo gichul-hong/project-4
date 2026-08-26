@@ -252,10 +252,10 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
 def main():
     ap = argparse.ArgumentParser(description="Version-Controlled End-to-End Boxing Benchmark Pipeline")
     ap.add_argument("--version", default=None, help="Version tag (e.g. v1_baseline, v2_anti_sway)")
-    ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter3/eval/configs/v2_anti_sway.json)")
-    ap.add_argument("--video", default="iter3/eval/video/benchmark.mp4", help="Input video file")
-    ap.add_argument("--labels", default="iter3/eval/video/benchmark_labels.json", help="Ground truth labels JSON")
-    ap.add_argument("--output-dir", default=None, help="Custom output directory (default: iter3/eval/runs/<version>)")
+    ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter4/eval/configs/v2_anti_sway.json)")
+    ap.add_argument("--video", default=str(SCRIPT_DIR / "video" / "benchmark.mp4"), help="Input video file")
+    ap.add_argument("--labels", default=str(SCRIPT_DIR / "video" / "benchmark_labels.json"), help="Ground truth labels JSON")
+    ap.add_argument("--output-dir", default=None, help="Custom output directory (default: iter4/eval/runs/<version>)")
     ap.add_argument("--force-extract", action="store_true", help="Force re-extract landmarks")
     args = ap.parse_args()
 

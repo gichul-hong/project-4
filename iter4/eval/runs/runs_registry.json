@@ -2,7 +2,7 @@
   "runs": [
     {
       "version": "v1_baseline",
-      "timestamp": "2026-08-26 15:23:23",
+      "timestamp": "2026-08-26 16:55:21",
       "f1": 0.3863,
       "precision": 0.2881,
       "recall": 0.5862,
@@ -11,12 +11,12 @@
       "fn": 12,
       "non_action_fp": 11,
       "timing_err_ms": 111.9,
-      "config_path": "C:\\hong\\project-4\\iter3\\eval\\configs\\v1_baseline.json",
-      "run_dir": "C:\\hong\\project-4\\iter3\\eval\\runs\\v1_baseline"
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v1_baseline.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v1_baseline"
     },
     {
       "version": "v2_anti_sway",
-      "timestamp": "2026-08-26 15:24:35",
+      "timestamp": "2026-08-26 16:55:33",
       "f1": 0.3514,
       "precision": 0.2889,
       "recall": 0.4483,
@@ -25,8 +25,22 @@
       "fn": 16,
       "non_action_fp": 6,
       "timing_err_ms": 115.6,
-      "config_path": "C:\\hong\\project-4\\iter3\\eval\\configs\\v2_anti_sway.json",
-      "run_dir": "C:\\hong\\project-4\\iter3\\eval\\runs\\v2_anti_sway"
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v2_anti_sway.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v2_anti_sway"
+    },
+    {
+      "version": "v3_iter4_eval",
+      "timestamp": "2026-08-26 17:00:14",
+      "f1": 0.359,
+      "precision": 0.2857,
+      "recall": 0.4828,
+      "tp": 14,
+      "fp": 35,
+      "fn": 15,
+      "non_action_fp": 8,
+      "timing_err_ms": 135.9,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v3_iter4_eval.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v3_iter4_eval"
     }
   ]
 }

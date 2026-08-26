@@ -22,7 +22,7 @@
     "STRAIGHT->CROSS": 1
   },
   "version": "v2_anti_sway",
-  "source_video": "C:\\hong\\project-4\\iter3\\eval\\video\\benchmark.mp4",
+  "source_video": "C:\\hong\\project-4\\iter4\\eval\\video\\benchmark.mp4",
   "phase_analysis": {
     "rest_fp": 0,
     "footwork_fp": 6,
