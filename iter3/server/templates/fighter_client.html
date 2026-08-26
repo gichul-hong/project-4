@@ -16,6 +16,10 @@
   <script src="/static/punch_core.js?v=3"></script>
   <script src="/static/sound.js?v=1"></script>
   <script src="/static/face3d.js?v=5"></script>
+  <!-- 동작 인식 엔진 선택지: rule-base(punch_core.js, 항상 로드) + TCN(실측 학습, onnxruntime-web) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script src="/static/motion_features.js?v=1"></script>
+  <script src="/static/tcn_engine.js?v=1"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,6 +36,9 @@
     #first-person-ring { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
     .action-hud { position: absolute; bottom: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.85); border: 1px solid var(--f-color); border-radius: 6px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 12px; z-index: 5; }
     .act-title { font-size: 16px; font-weight: 900; color: var(--f-color); }
+    .engine-select { font-family: var(--mono); font-size: 11px; background: #10131c; color: #ddd;
+      border: 1px solid var(--f-color); border-radius: 4px; padding: 2px 6px; }
+    .engine-select:disabled { opacity: 0.4; }
     .hit-flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; opacity: 0;
       background: radial-gradient(ellipse at center, rgba(255,51,102,0) 30%, rgba(255,51,102,0.55) 72%, rgba(255,20,80,0.95) 100%); }
     /* K.O. — 내가 쓰러졌을 때 1인칭 화면을 덮는 관전 안내 */
@@ -168,6 +175,7 @@
       </div>
       <div class="action-hud">
         <div>Motion: <span class="act-title" id="action-text">IDLE</span></div>
+        <select class="engine-select" id="engine-select" title="동작 인식 엔진"></select>
         <div style="color:#00ff66">Speed: <b id="speed-text">0.0</b> km/h</div>
       </div>
     </div>
@@ -206,6 +214,7 @@
     const canvasCtx = canvasElement.getContext('2d');
     const actionText = document.getElementById('action-text');
     const speedText = document.getElementById('speed-text');
+    const engineSelect = document.getElementById('engine-select');
     const fpsBadge = document.getElementById('fps-badge');
     const myHpBadge = document.getElementById('my-hp-badge');
     const hitFlash = document.getElementById('hit-flash');
@@ -746,6 +755,46 @@
     // 펀치 판정기 — static/punch_core.js (런타임·평가기 공용 단일 소스)
     const punchCore = window.PunchCore.createPunchCore();
 
+    // ========== 동작 인식 엔진 선택 (Rule-base / TCN / 앞으로 추가될 모델) ==========
+    // 펀치가 나가는지·언제·어느 팔인지(트리거)와 이동·회전·가드·필살기(ENERGY_WAVE)는
+    // 모드와 무관하게 항상 punchCore(tryPunch/tryUltimate) + 아래 자세 로직(rule-base)
+    // 하나만 담당한다. 여기서 갈리는 건 딱 하나, "이미 확정된 일반 펀치의 종류를
+    // 무엇으로 판단하는가" 뿐이다 — TCN이 트리거까지 가지면 물리 임계값 없이 매 프레임
+    // 분류만으로 발동이 흔들려 오검출이 크게 늘어난다(실측 확인). 필살기는 펀치 종류가
+    // 아니라 별도 제스처라 TCN이 아예 관여하지 않는다.
+    // 새 모델을 추가하려면 이 레지스트리에 { label, engine } 한 항목만 더 넣으면 되고,
+    // engine 은 tcn_engine.js와 같은 인터페이스( load, push, guessPunchKind, stableState, reset, ready )만
+    // 구현하면 아래 소비 코드를 손대지 않아도 된다.
+    const ENGINE_REGISTRY = {
+      rule: { label: 'Rule-base', engine: null }, // punchCore를 직접 쓰므로 별도 엔진 객체가 없다
+      tcn:  { label: 'TCN (실측 학습)', engine: window.createTCNEngine() },
+    };
+    const motionFeatures = window.createMotionFeatures();
+
+    let motionMode = localStorage.getItem('motionMode') || 'rule';
+    if (!ENGINE_REGISTRY[motionMode]) motionMode = 'rule';
+
+    Object.keys(ENGINE_REGISTRY).forEach((key) => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = ENGINE_REGISTRY[key].label;
+      engineSelect.appendChild(opt);
+    });
+    engineSelect.value = motionMode;
+    engineSelect.addEventListener('change', () => {
+      motionMode = engineSelect.value;
+      localStorage.setItem('motionMode', motionMode);
+      motionFeatures.reset();
+      Object.values(ENGINE_REGISTRY).forEach((e) => e.engine && e.engine.reset());
+    });
+
+    // TCN 등 별도 모델의 가중치는 미리 비동기로 로드해 둔다. 실패해도 rule-base 동작(트리거)에는
+    // 전혀 영향이 없고, 로드 전에 사용자가 TCN을 선택해도 guessPunchKind가 null만 돌려줘
+    // rule-base의 종류 판정이 그대로 쓰인다.
+    if (ENGINE_REGISTRY.tcn.engine) {
+      ENGINE_REGISTRY.tcn.engine.load('/static/models/boxing_tcn.onnx', '/static/models/boxing_tcn_scaler.json');
+    }
+
     // 자세 지표(roll/pitch/shift)는 "어깨폭" 단위로 정규화 → 카메라 거리·체격에 불변.
     // 시간 상수는 모두 ms/초 단위 → 포즈 추정 FPS가 바뀌어도 체감이 동일하게 유지된다.
     const TUNE = {
@@ -1171,6 +1220,9 @@
         latestPose = null;
         sRoll *= 0.8; sPitch *= 0.8; sShift *= 0.8;
         relaxStates();
+        // 포즈를 놓친 구간이 이어붙지 않도록 — 끊긴 시퀀스로 다음 추론이 오염되는 걸 막는다.
+        motionFeatures.reset();
+        ENGINE_REGISTRY.tcn.engine.reset();
         currentAction = "IDLE"; currentVelocity = 0; lastSpeedKmh = 0;
         actionText.innerText = "NO POSE";
         speedText.innerText = "0.0";
@@ -1348,6 +1400,19 @@
       }
       lastSpeedKmh = Math.max(kL.speed, kR.speed) * 3.6;
 
+      // TCN 버퍼는 모드 선택과 무관하게 계속 채워 둔다 — 그래야 TCN으로 막 전환했을 때도
+      // 최근 궤적이 이미 쌓여 있어 첫 펀치부터 종류를 물어볼 수 있다.
+      if (wristOK) ENGINE_REGISTRY.tcn.engine.push(motionFeatures.step(P, lm, now), now);
+      const tcnTop = motionMode === 'tcn' ? ENGINE_REGISTRY.tcn.engine.stableState() : null;
+
+      // 필살기(ENERGY_WAVE)는 "펀치 종류"가 아니라 별도 제스처이므로 TCN이 절대 건드리지
+      // 않는다 — 트리거·종류 모두 punchCore.tryUltimate가 그대로 정한다. TCN은 일반 펀치가
+      // 확정된 경우에만, 그것도 확신 있을 때만 그 종류를 다시 되묻는다.
+      if (punch && motionMode === 'tcn' && punch.action !== punchCore.ULTIMATE) {
+        const guess = ENGINE_REGISTRY.tcn.engine.guessPunchKind(punch.action.startsWith('LEFT') ? 'L' : 'R');
+        if (guess) punch = Object.assign({}, punch, { action: guess.action, kind: guess.kind });
+      }
+
       if (punch) {
         lastPunchAny = punchCore.getLastPunchAny();   // 코어가 발동 시각의 단일 소스
         armAnim[punch.action.startsWith("LEFT") ? "L" : "R"] = 1;
@@ -1403,11 +1468,14 @@
         if (rel) { myArms.R.elbow.position.x = mapX(rel.x,  1.4); myArms.R.elbow.position.y = mapY(rel.y); }
       }
 
-      // HUD 라벨: 펀치는 0.5초간 유지, 그 외에는 현재 자세 상태
+      // HUD 라벨: 펀치는 0.5초간 유지, 그 외에는 현재 자세 상태.
+      // TCN 모드에서는 발동(punch)이 없는 동안 모델이 지금 뭘 보고 있는지(top-1 + 확신도)를
+      // 그대로 보여준다 — 발동/이동/가드/필살기 판정은 여전히 rule 로직 그대로다.
       if (punch || now - punchLabelT < 500) actionText.innerText = punchLabel;
       else if (guardActive) actionText.innerText = "DUAL_GUARD";
       else if (moveState !== "NONE") actionText.innerText = moveState;
       else if (rotState !== "NONE") actionText.innerText = rotState;
+      else if (motionMode === 'tcn' && tcnTop) actionText.innerText = `${tcnTop.label} (${(tcnTop.confidence * 100).toFixed(0)}%)`;
       else actionText.innerText = neutral.ready ? "IDLE" : "CALIBRATING";
       speedText.innerText = lastSpeedKmh.toFixed(1);
 
