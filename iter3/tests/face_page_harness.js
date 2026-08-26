@@ -15,7 +15,7 @@ const { open, sleep } = require('./_cdp');
 const HEAD_R = Number(
   require('fs').readFileSync(require('path').join(__dirname, '../server/static/humanoid.js'), 'utf8')
     .match(/const HEAD_R = ([\d.]+)/)[1]);
-const BASE = process.argv[2] || 'https://localhost:8100';
+const BASE = process.argv[2] || 'https://localhost:8000';   // 다른 하니스와 동일하게
 
 let fail = 0;
 const ck = (n, c, x) => {
