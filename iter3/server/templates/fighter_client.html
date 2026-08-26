@@ -1338,31 +1338,61 @@
       stopCapture(); hidePreview(); capEls.box.classList.remove('on');
     });
 
-    // Camera
+    // Camera or Video Injection
+    const urlParams = new URLSearchParams(window.location.search);
+    const videoSource = urlParams.get('video');
+
     let poseBusy = false, lastSendT = 0;
-    const cameraUtils = new Camera(videoElement, {
-      onFrame: async () => {
-        if (!videoElement || videoElement.readyState < 2) return;
-        const now = performance.now();
 
-        // 얼굴 등록 중에는 Face Mesh 만 — 두 모델을 같이 돌리면 FPS 가 무너진다
-        if (captureMode) {
-          if (faceBusy || !faceMesh) return;
-          faceBusy = true;
-          try { await faceMesh.send({ image: videoElement }); } catch (e) {}
-          finally { faceBusy = false; }
-          return;
+    if (videoSource) {
+      // 가상 비디오 입력 모드 (예: /client?id=client_1&video=benchmark)
+      const videoSrc = videoSource === "1" || videoSource === "benchmark" ? "/eval_video/benchmark.mp4" : `/eval_video/${videoSource}`;
+      videoElement.src = videoSrc;
+      videoElement.loop = true;
+      videoElement.muted = true;
+      videoElement.playsInline = true;
+      videoElement.play().catch(e => console.warn("Video autoplay blocked:", e));
+
+      async function processVideoFrame() {
+        if (videoElement && videoElement.readyState >= 2 && !poseBusy) {
+          const now = performance.now();
+          if (now - lastSendT >= 30) {
+            poseBusy = true;
+            lastSendT = now;
+            try { await pose.send({ image: videoElement }); } catch(e) {}
+            finally { poseBusy = false; }
+          }
         }
+        requestAnimationFrame(processVideoFrame);
+      }
+      requestAnimationFrame(processVideoFrame);
+      console.log("🎬 [Video Injection Mode] Loaded:", videoSrc);
+    } else {
+      // 일반 웹캠 모드
+      const cameraUtils = new Camera(videoElement, {
+        onFrame: async () => {
+          if (!videoElement || videoElement.readyState < 2) return;
+          const now = performance.now();
 
-        if (poseBusy) return;
-        if (now - lastSendT < 30) return; // 최대 ~33fps — 실제 주기는 모델 속도에 맞춰 자동 조절
-        poseBusy = true; lastSendT = now;
-        try { await pose.send({image: videoElement}); } catch(e) {}
-        finally { poseBusy = false; }
-      },
-      width: 480, height: 360
-    });
-    cameraUtils.start();
+          // 얼굴 등록 중에는 Face Mesh 만 — 두 모델을 같이 돌리면 FPS 가 무너진다
+          if (captureMode) {
+            if (faceBusy || !faceMesh) return;
+            faceBusy = true;
+            try { await faceMesh.send({ image: videoElement }); } catch (e) {}
+            finally { faceBusy = false; }
+            return;
+          }
+
+          if (poseBusy) return;
+          if (now - lastSendT < 30) return; // 최대 ~33fps — 실제 주기는 모델 속도에 맞춰 자동 조절
+          poseBusy = true; lastSendT = now;
+          try { await pose.send({image: videoElement}); } catch(e) {}
+          finally { poseBusy = false; }
+        },
+        width: 480, height: 360
+      });
+      cameraUtils.start();
+    }
 
     // 10Hz sync
     setInterval(() => { sendCombatPacket(currentAction, currentVelocity); }, 100);

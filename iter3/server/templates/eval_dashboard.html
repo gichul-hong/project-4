@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>🥊 Boxing Evaluation Dashboard — Video · 3D Replay · Accuracy</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥊</text></svg>">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="/static/punch_core.js?v=3"></script>
+  <script src="/static/effects.js?v=2"></script>
+  <style>
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --cyan: #00E5FF; --pink: #FF3366; --green: #3fb950; --gold: #d29922;
+      --text: #e6edf3; --muted: #8b949e;
+      --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden; display: flex; flex-direction: column; height: 100vh;
+    }
+
+    /* === Header === */
+    header {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      padding: 6px 16px; display: flex; align-items: center; justify-content: space-between;
+      height: 44px; flex-shrink: 0;
+    }
+    .title-group { display: flex; align-items: center; gap: 8px; }
+    .title-group h1 { font-size: 0.95rem; font-weight: 700; color: var(--cyan); }
+    .badge { background: rgba(0,229,255,0.12); border: 1px solid var(--cyan); color: var(--cyan); padding: 2px 7px; border-radius: 10px; font-size: 0.68rem; font-weight: 600; }
+    .hud-bar { display: flex; gap: 10px; font-size: 0.78rem; font-family: var(--mono); }
+    .hud-item { background: #1b2333; padding: 3px 8px; border-radius: 5px; border: 1px solid #2c3952; }
+    .hud-item span { font-weight: bold; }
+
+    /* === Main 3-pane Layout === */
+    #main { display: flex; flex: 1; overflow: hidden; }
+    .pane { position: relative; background: #05080f; overflow: hidden; }
+    .pane-video { flex: 3; border-right: 2px solid var(--border); }
+    .pane-3d    { flex: 3; border-right: 2px solid var(--border); }
+    .pane-stats { flex: 2.5; display: flex; flex-direction: column; background: var(--card); overflow-y: auto; }
+
+    .pane-label {
+      position: absolute; top: 8px; left: 8px; z-index: 10;
+      background: rgba(22,27,34,0.88); backdrop-filter: blur(4px);
+      padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border);
+      font-size: 0.72rem; font-weight: 600; color: #c9d1d9;
+    }
+
+    .video-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+    #video-el { width: 100%; height: 100%; object-fit: contain; }
+    #skel-cv  { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+    #three-box { width: 100%; height: 100%; }
+
+    /* === Stats Panel === */
+    .stats-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .stats-section h3 { font-size: 0.82rem; color: var(--cyan); margin-bottom: 6px; font-weight: 700; }
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .metric-card {
+      background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; text-align: center;
+    }
+    .metric-card .val { font-size: 1.4rem; font-weight: 800; font-family: var(--mono); }
+    .metric-card .label { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+
+    .type-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; font-family: var(--mono); border-bottom: 1px solid #1b2333; }
+    .type-row:last-child { border: none; }
+    .type-name { color: var(--cyan); font-weight: 600; }
+
+    /* === Timeline Log === */
+    #event-log { max-height: 200px; overflow-y: auto; font-size: 0.72rem; font-family: var(--mono); }
+    .log-entry { padding: 2px 0; display: flex; gap: 8px; border-bottom: 1px solid #1a2030; }
+    .log-entry:hover { background: rgba(0,229,255,0.05); }
+    .log-t { color: var(--gold); min-width: 52px; }
+    .log-action { color: var(--pink); font-weight: 700; min-width: 120px; }
+    .log-speed { color: var(--green); }
+    .log-conf { color: var(--muted); }
+    .log-entry.suspect { background: rgba(255,51,102,0.08); }
+    .log-entry.suspect .log-action { color: #ff6b6b; }
+
+    /* Action Popup */
+    #action-pop {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8);
+      z-index: 20; background: rgba(13,17,23,0.92); border: 2px solid var(--pink);
+      padding: 8px 22px; border-radius: 16px; font-size: 1.1rem; font-weight: 800; color: var(--pink);
+      box-shadow: 0 0 20px rgba(255,51,102,0.4); opacity: 0; pointer-events: none; transition: all 0.12s;
+    }
+    #action-pop.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+    /* === Footer Controls === */
+    footer {
+      background: var(--card); border-top: 1px solid var(--border);
+      padding: 6px 16px; display: flex; align-items: center; gap: 12px; height: 48px; flex-shrink: 0;
+    }
+    .btn { background: #238636; color: #fff; border: none; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+    .btn:hover { background: #2ea043; }
+    .btn-sec { background: #30363d; }
+    .btn-sec:hover { background: #3c444d; }
+    .slider-box { flex: 1; display: flex; align-items: center; gap: 8px; }
+    input[type=range] { flex: 1; accent-color: var(--cyan); height: 5px; }
+    .time-lbl { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); min-width: 48px; }
+    select { background: #1b2333; color: var(--text); border: 1px solid var(--border); padding: 5px 8px; border-radius: 5px; font-size: 0.76rem; }
+
+    /* progress marker on seek bar */
+    .marker-strip { position: relative; flex: 1; height: 20px; }
+    .marker-strip input[type=range] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; }
+    #markers-cv { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title-group">
+    <h1>🥊 Boxing Evaluation Dashboard</h1>
+    <span class="badge">MULTI-VERSION BENCHMARK</span>
+  </div>
+  <div class="hud-bar">
+    <div class="hud-item" style="display:flex;align-items:center;gap:6px;">
+      <label for="ver-sel" style="color:var(--muted);font-size:0.75rem;">VERSION:</label>
+      <select id="ver-sel" style="background:#0d1117;color:var(--cyan);font-weight:bold;border:1px solid var(--cyan);padding:2px 6px;border-radius:4px;cursor:pointer;">
+        <option value="latest">최신 결과 (Latest)</option>
+      </select>
+    </div>
+    <div class="hud-item">NOW: <span id="hud-now" style="color:var(--cyan)">IDLE</span></div>
+    <div class="hud-item">FPS: <span id="hud-fps" style="color:var(--green)">--</span></div>
+    <div class="hud-item">DATA: <span id="hud-data" style="color:var(--gold)">로딩 중...</span></div>
+  </div>
+</header>
+
+<div id="main">
+  <!-- 1) 원본 영상 + 스켈레톤 -->
+  <div class="pane pane-video">
+    <div class="pane-label">📹 원본 녹화 영상</div>
+    <div class="video-wrap">
+      <video id="video-el" src="/eval_video/benchmark.mp4" playsinline muted crossorigin="anonymous"></video>
+      <canvas id="skel-cv"></canvas>
+    </div>
+    <div id="action-pop">LEFT_JAB</div>
+  </div>
+
+  <!-- 2) 3D 아바타 리플레이 -->
+  <div class="pane pane-3d">
+    <div class="pane-label">🥊 3D 복서 아바타 IK 미러링</div>
+    <div id="three-box"></div>
+  </div>
+
+  <!-- 3) 벤치마크 정확도 통계 패널 -->
+  <div class="pane-stats">
+    <div class="stats-section">
+      <h3>📊 벤치마크 검출 총괄</h3>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="val" id="m-total" style="color:var(--cyan)">--</div><div class="label">총 검출 수</div></div>
+        <div class="metric-card"><div class="val" id="m-suspect" style="color:var(--pink)">--</div><div class="label">의심 FP (conf≤0)</div></div>
+        <div class="metric-card"><div class="val" id="m-avg-speed" style="color:var(--green)">--</div><div class="label">평균 속도 (km/h)</div></div>
+        <div class="metric-card"><div class="val" id="m-avg-conf" style="color:var(--gold)">--</div><div class="label">평균 conf_margin</div></div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h3>🥊 타입별 검출 분포</h3>
+      <div id="type-breakdown"></div>
+    </div>
+
+    <div class="stats-section">
+      <h3>📋 구간별 프로토콜 대비 분석</h3>
+      <div id="phase-analysis"></div>
+    </div>
+
+    <div class="stats-section" style="flex:1;">
+      <h3>📜 이벤트 타임라인 (클릭 시 해당 시점으로 이동)</h3>
+      <div id="event-log"></div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <button id="btn-play" class="btn">▶ 재생</button>
+  <div class="slider-box">
+    <span id="t-cur" class="time-lbl">00:00</span>
+    <div class="marker-strip">
+      <canvas id="markers-cv"></canvas>
+      <input type="range" id="seek" min="0" max="100" value="0" step="0.1">
+    </div>
+    <span id="t-dur" class="time-lbl">00:00</span>
+  </div>
+  <select id="speed-sel">
+    <option value="0.5">0.5x</option>
+    <option value="1.0" selected>1.0x</option>
+    <option value="1.5">1.5x</option>
+  </select>
+  <button class="btn btn-sec" id="btn-cam">카메라 리셋</button>
+</footer>
+
+<script>
+// ==================== DOM Elements ====================
+const video = document.getElementById('video-el');
+const skelCv = document.getElementById('skel-cv');
+const skelCtx = skelCv.getContext('2d');
+const threeBox = document.getElementById('three-box');
+const markersCv = document.getElementById('markers-cv');
+const markersCtx = markersCv.getContext('2d');
+const actionPop = document.getElementById('action-pop');
+const hudNow = document.getElementById('hud-now');
+const hudFps = document.getElementById('hud-fps');
+const hudData = document.getElementById('hud-data');
+const btnPlay = document.getElementById('btn-play');
+const seek = document.getElementById('seek');
+const tCur = document.getElementById('t-cur');
+const tDur = document.getElementById('t-dur');
+
+// ==================== Protocol phases (record_webcam.py SCHEDULE 기반) ====================
+const PROTOCOL = [
+  { t0:  0, t1:  6, label: "준비 & 캘리브레이션", expect: 0, types: [] },
+  { t0:  6, t1: 18, label: "직선 펀치 (잽4+크로스4)", expect: 8, types: ["LEFT_JAB","RIGHT_CROSS"] },
+  { t0: 18, t1: 23, label: "⏸ 숨고르기", expect: 0, types: [] },
+  { t0: 23, t1: 35, label: "훅 (좌3+우3)", expect: 6, types: ["LEFT_HOOK","RIGHT_HOOK"] },
+  { t0: 35, t1: 40, label: "⏸ 숨고르기", expect: 0, types: [] },
+  { t0: 40, t1: 52, label: "어퍼컷 (좌3+우3)", expect: 6, types: ["LEFT_UPPERCUT","RIGHT_UPPERCUT"] },
+  { t0: 52, t1: 57, label: "⏸ 숨고르기", expect: 0, types: [] },
+  { t0: 57, t1: 70, label: "풋워크 (펀치 없어야 함)", expect: 0, types: [] },
+  { t0: 70, t1: 75, label: "⏸ 숨고르기", expect: 0, types: [] },
+  { t0: 75, t1: 85, label: "콤보 (원투3+잽크훅2)", expect: 11, types: ["LEFT_JAB","RIGHT_CROSS","LEFT_HOOK","RIGHT_HOOK"] },
+  { t0: 85, t1: 90, label: "마무리 (펀치 없어야 함)", expect: 0, types: [] },
+];
+
+// ==================== Three.js Setup ====================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060911);
+scene.fog = new THREE.FogExp2(0x060911, 0.025);
+
+let tw = threeBox.clientWidth || 400, th = threeBox.clientHeight || 400;
+const cam3 = new THREE.PerspectiveCamera(45, tw / th, 0.1, 100);
+cam3.position.set(0, 2.8, 6.2);
+
+const ren = new THREE.WebGLRenderer({ antialias: true });
+ren.setSize(tw, th);
+ren.setPixelRatio(Math.min(devicePixelRatio, 2));
+ren.shadowMap.enabled = true;
+threeBox.appendChild(ren.domElement);
+
+const orb = new THREE.OrbitControls(cam3, ren.domElement);
+orb.target.set(0, 1.4, 0);
+orb.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(5, 12, 6); scene.add(dl);
+scene.add(new THREE.PointLight(0x00E5FF, 1.8, 15).translateTo?.(0,3,2) || (() => { const p = new THREE.PointLight(0x00E5FF, 1.8, 15); p.position.set(0,3,2); scene.add(p); return p; })());
+
+const flr = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x0f1522, roughness: 0.4 }));
+flr.rotation.x = -Math.PI / 2; flr.receiveShadow = true; scene.add(flr);
+const grd = new THREE.GridHelper(14, 14, 0x00E5FF, 0x1b2538); grd.position.y = 0.01; scene.add(grd);
+
+[[-5,-5],[5,-5],[-5,5],[5,5]].forEach(([x,z]) => {
+  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3, 16), new THREE.MeshStandardMaterial({ color: 0xFF3366, metalness: 0.7 }));
+  p.position.set(x, 1.5, z); scene.add(p);
+});
+
+const hitFx = window.createHitEffects ? window.createHitEffects(scene) : null;
+
+// 3D Avatar
+const av = new THREE.Group(); scene.add(av);
+const mB = new THREE.MeshStandardMaterial({ color: 0x1a2333 });
+const mC = new THREE.MeshStandardMaterial({ color: 0x00E5FF, roughness: 0.3 });
+const mGL = new THREE.MeshStandardMaterial({ color: 0x00E5FF, emissive: 0x00E5FF, emissiveIntensity: 0.45 });
+const mGR = new THREE.MeshStandardMaterial({ color: 0xFF3366, emissive: 0xFF3366, emissiveIntensity: 0.45 });
+const mJ = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+
+const head3 = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), mC); head3.position.set(0,1.9,0); av.add(head3);
+const torso3 = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.30, 0.85, 12), mB); torso3.position.set(0,1.25,0); av.add(torso3);
+const shL = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), mJ); av.add(shL);
+const shR = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), mJ); av.add(shR);
+const elL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), mJ); av.add(elL);
+const elR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), mJ); av.add(elR);
+const gL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mGL); av.add(gL);
+const gR = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mGR); av.add(gR);
+
+function mkBone(m) { const g = new THREE.CylinderGeometry(0.08, 0.08, 1, 10); g.translate(0, 0.5, 0); g.rotateX(Math.PI / 2); return new THREE.Mesh(g, m); }
+const buL = mkBone(mB), bfL = mkBone(mC), buR = mkBone(mB), bfR = mkBone(mC);
+av.add(buL, bfL, buR, bfR);
+const lL = mkBone(mB), lR = mkBone(mB); av.add(lL, lR);
+
+function layB(m, a, b) { if (!a || !b || isNaN(a.x) || isNaN(b.x)) return; m.position.copy(a); const d = a.distanceTo(b); if (d > 0.001) { m.lookAt(b); m.scale.set(1, 1, d); } }
+layB(lL, new THREE.Vector3(-0.25,0.85,0), new THREE.Vector3(-0.35,0,0.1));
+layB(lR, new THREE.Vector3(0.25,0.85,0), new THREE.Vector3(0.35,0,-0.1));
+
+// ==================== PunchCore ====================
+const pc = window.PunchCore ? window.PunchCore.createPunchCore() : null;
+const SKEL = [[0,11],[0,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+
+// ==================== Data Loading & Version Switching ====================
+let frames = [], punchEvents = [];
+let lastPopT = 0;
+const verSel = document.getElementById('ver-sel');
+
+async function loadVersions() {
+  try {
+    const res = await fetch('/api/eval-versions');
+    const data = await res.json();
+    const runs = data.runs || [];
+    verSel.innerHTML = runs.map(r => 
+      `<option value="${r.version}">${r.version} (F1: ${r.f1?.toFixed(3) ?? '--'})</option>`
+    ).join('') + `<option value="latest" selected>최신 결과 (Latest)</option>`;
+  } catch(e) {
+    console.warn("Failed to load versions list:", e);
+  }
+}
+
+async function loadAll(selectedVersion = null) {
+  hudData.innerText = "데이터 로딩 중...";
+  hudData.style.color = 'var(--gold)';
+
+  // 1) Landmarks (only load once)
+  if (frames.length === 0) {
+    try {
+      const r1 = await fetch('/eval_video/benchmark_landmarks.jsonl');
+      const txt = await r1.text();
+      frames = txt.trim().split('\n').map(l => { try { return JSON.parse(l); } catch(e) { return null; } }).filter(Boolean);
+    } catch(e) { console.error("Landmarks load fail:", e); }
+  }
+
+  // 2) Punch events from API (with optional version)
+  try {
+    const url = (selectedVersion && selectedVersion !== "latest") ? `/api/eval-punches?version=${selectedVersion}` : '/api/eval-punches';
+    const r2 = await fetch(url);
+    const d = await r2.json();
+    punchEvents = d.punches || [];
+  } catch(e) { console.error("Punch events load fail:", e); }
+
+  hudData.innerText = `${frames.length}F / ${punchEvents.length}P`;
+  hudData.style.color = '#3fb950';
+
+  renderStats();
+  renderTimeline();
+  renderMarkers();
+  resizeSkel();
+}
+
+verSel.addEventListener('change', (e) => {
+  loadAll(e.target.value);
+});
+
+loadVersions().then(() => loadAll());
+
+// ==================== Stats Rendering ====================
+function renderStats() {
+  document.getElementById('m-total').innerText = punchEvents.length;
+  const suspects = punchEvents.filter(p => p.conf_margin <= 0);
+  document.getElementById('m-suspect').innerText = suspects.length;
+  const avgSpd = punchEvents.length ? (punchEvents.reduce((s, p) => s + p.speed_kmh, 0) / punchEvents.length).toFixed(1) : '--';
+  document.getElementById('m-avg-speed').innerText = avgSpd;
+  const avgConf = punchEvents.length ? (punchEvents.reduce((s, p) => s + p.conf_margin, 0) / punchEvents.length).toFixed(2) : '--';
+  document.getElementById('m-avg-conf').innerText = avgConf;
+
+  // Type breakdown
+  const types = {};
+  punchEvents.forEach(p => { types[p.action] = (types[p.action] || 0) + 1; });
+  const tbDiv = document.getElementById('type-breakdown');
+  tbDiv.innerHTML = Object.entries(types).sort((a,b) => b[1] - a[1]).map(([k,v]) =>
+    `<div class="type-row"><span class="type-name">${k}</span><span>${v}회</span></div>`
+  ).join('');
+
+  // Phase analysis
+  const paDiv = document.getElementById('phase-analysis');
+  paDiv.innerHTML = PROTOCOL.map(ph => {
+    const detected = punchEvents.filter(p => p.t_ms >= ph.t0 * 1000 && p.t_ms < ph.t1 * 1000).length;
+    const diff = detected - ph.expect;
+    const diffStr = diff > 0 ? `<span style="color:var(--pink)">+${diff} 과검출</span>` : diff < 0 ? `<span style="color:var(--gold)">${diff} 미검출</span>` : `<span style="color:var(--green)">✓ 정확</span>`;
+    return `<div class="type-row"><span style="font-size:0.72rem;color:#c9d1d9">[${ph.t0}~${ph.t1}s] ${ph.label}</span><span>${detected}/${ph.expect} ${diffStr}</span></div>`;
+  }).join('');
+}
+
+function renderTimeline() {
+  const logDiv = document.getElementById('event-log');
+  logDiv.innerHTML = punchEvents.map((p, i) => {
+    const sec = (p.t_ms / 1000).toFixed(1);
+    const isSuspect = p.conf_margin <= 0;
+    return `<div class="log-entry ${isSuspect ? 'suspect' : ''}" data-t="${p.t_ms / 1000}" onclick="video.currentTime=${p.t_ms / 1000};video.pause();">
+      <span class="log-t">${sec}s</span>
+      <span class="log-action">${p.action}</span>
+      <span class="log-speed">${p.speed_kmh.toFixed(1)} km/h</span>
+      <span class="log-conf">conf: ${p.conf_margin.toFixed(2)}${isSuspect ? ' ⚠️' : ''}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMarkers() {
+  if (!video.duration || video.duration === Infinity) return;
+  const W = markersCv.width = markersCv.parentElement.clientWidth;
+  const H = markersCv.height = 20;
+  markersCtx.clearRect(0, 0, W, H);
+  const dur = video.duration;
+  punchEvents.forEach(p => {
+    const x = (p.t_ms / 1000 / dur) * W;
+    markersCtx.fillStyle = p.conf_margin <= 0 ? '#FF3366' : '#00E5FF';
+    markersCtx.globalAlpha = 0.7;
+    markersCtx.fillRect(x - 1, 0, 2, H);
+  });
+  markersCtx.globalAlpha = 1;
+}
+
+// ==================== Skeleton Drawing ====================
+function resizeSkel() {
+  const r = video.getBoundingClientRect();
+  if (r.width > 0) { skelCv.width = r.width; skelCv.height = r.height; }
+}
+window.addEventListener('resize', resizeSkel);
+video.addEventListener('loadedmetadata', () => { resizeSkel(); renderMarkers(); });
+
+function drawSkel(lm) {
+  if (!lm) return;
+  const cW = skelCv.width, cH = skelCv.height;
+  if (!cW || !cH) return;
+  skelCtx.clearRect(0, 0, cW, cH);
+
+  const vW = video.videoWidth || 640, vH = video.videoHeight || 480;
+  const vA = vW / vH, cA = cW / cH;
+  let rW = cW, rH = cH, oX = 0, oY = 0;
+  if (cA > vA) { rW = cH * vA; oX = (cW - rW) / 2; } else { rH = cW / vA; oY = (cH - rH) / 2; }
+
+  function pt(p) { const x = Array.isArray(p) ? p[0] : p.x, y = Array.isArray(p) ? p[1] : p.y; return { x: oX + x * rW, y: oY + y * rH }; }
+
+  skelCtx.lineWidth = 3; skelCtx.strokeStyle = "#00E5FF";
+  SKEL.forEach(([a, b]) => {
+    if (lm[a] && lm[b]) { const A = pt(lm[a]), B = pt(lm[b]); skelCtx.beginPath(); skelCtx.moveTo(A.x, A.y); skelCtx.lineTo(B.x, B.y); skelCtx.stroke(); }
+  });
+  [0, 11, 12, 13, 14, 15, 16].forEach(i => {
+    if (lm[i]) { const P = pt(lm[i]); skelCtx.fillStyle = i >= 15 ? (i === 15 ? "#00E5FF" : "#FF3366") : "#58a6ff"; skelCtx.beginPath(); skelCtx.arc(P.x, P.y, 5, 0, Math.PI * 2); skelCtx.fill(); }
+  });
+}
+
+// ==================== 3D Avatar Update ====================
+function upd3D(lm, wl, tMs) {
+  if (!lm || !wl || wl.length <= 16) return;
+  const S = 2.8, BY = 1.6;
+  function v3(p) { const x = Array.isArray(p) ? p[0] : p.x, y = Array.isArray(p) ? p[1] : p.y, z = Array.isArray(p) ? p[2] : p.z; return new THREE.Vector3(-x*S, BY - y*S, -z*S*1.5 + 0.3); }
+
+  head3.position.lerp(v3(wl[0]), 0.5);
+  shL.position.lerp(v3(wl[11]), 0.5); shR.position.lerp(v3(wl[12]), 0.5);
+  elL.position.lerp(v3(wl[13]), 0.5); elR.position.lerp(v3(wl[14]), 0.5);
+  gL.position.lerp(v3(wl[15]), 0.55); gR.position.lerp(v3(wl[16]), 0.55);
+  layB(buL, shL.position, elL.position); layB(bfL, elL.position, gL.position);
+  layB(buR, shR.position, elR.position); layB(bfR, elR.position, gR.position);
+
+  const mid = new THREE.Vector3().addVectors(shL.position, shR.position).multiplyScalar(0.5);
+  torso3.position.set(mid.x, mid.y - 0.45, mid.z * 0.5);
+
+  // Check if current time matches a punch event
+  const curPunch = punchEvents.find(p => Math.abs(p.t_ms - tMs) < 200);
+  if (curPunch && performance.now() - lastPopT > 500) {
+    lastPopT = performance.now();
+    actionPop.innerText = `💥 ${curPunch.action} (${curPunch.speed_kmh.toFixed(1)} km/h)`;
+    actionPop.classList.add('show');
+    hudNow.innerText = curPunch.action;
+    hudNow.style.color = 'var(--pink)';
+
+    if (hitFx && hitFx.spawnHit) {
+      const hp = curPunch.action.startsWith("LEFT") ? gL.position.clone() : gR.position.clone();
+      hp.z += 0.3;
+      hitFx.spawnHit(hp, 0xFF3366, 8, false);
+    }
+  }
+  if (performance.now() - lastPopT > 600) {
+    actionPop.classList.remove('show');
+    hudNow.innerText = 'IDLE';
+    hudNow.style.color = 'var(--cyan)';
+  }
+}
+
+// ==================== Binary search ====================
+function findFrame(tMs) {
+  if (!frames.length) return null;
+  let lo = 0, hi = frames.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (frames[m].t_ms < tMs) lo = m + 1; else hi = m - 1; }
+  return frames[Math.min(lo, frames.length - 1)];
+}
+
+// ==================== Main Sync Loop ====================
+let fpsFrames = 0, fpsLast = performance.now();
+function sync() {
+  if (frames.length > 0) {
+    const ms = Math.round(video.currentTime * 1000);
+    const d = findFrame(ms);
+    if (d) { drawSkel(d.lm); upd3D(d.lm, d.wl, ms); }
+  }
+  // FPS counter
+  fpsFrames++;
+  const now = performance.now();
+  if (now - fpsLast > 1000) { hudFps.innerText = fpsFrames; fpsFrames = 0; fpsLast = now; }
+  requestAnimationFrame(sync);
+}
+requestAnimationFrame(sync);
+
+// Highlight current event in log
+video.addEventListener('timeupdate', () => {
+  tCur.innerText = fmt(video.currentTime);
+  seek.value = video.currentTime;
+  // highlight closest event
+  document.querySelectorAll('.log-entry').forEach(el => el.style.outline = 'none');
+  const tMs = video.currentTime * 1000;
+  const closest = punchEvents.reduce((best, p) => Math.abs(p.t_ms - tMs) < Math.abs((best?.t_ms ?? 1e9) - tMs) ? p : best, null);
+  if (closest && Math.abs(closest.t_ms - tMs) < 1000) {
+    const idx = punchEvents.indexOf(closest);
+    const el = document.querySelectorAll('.log-entry')[idx];
+    if (el) { el.style.outline = '1px solid var(--cyan)'; el.scrollIntoView({ block: 'nearest' }); }
+  }
+});
+
+function fmt(s) { if (isNaN(s)) return "00:00"; return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
+
+video.addEventListener('loadedmetadata', () => { tDur.innerText = fmt(video.duration); seek.max = video.duration; });
+
+btnPlay.addEventListener('click', () => {
+  if (video.paused) { video.play().then(() => { btnPlay.innerText = "⏸ 일시정지"; }); }
+  else { video.pause(); btnPlay.innerText = "▶ 재생"; }
+});
+seek.addEventListener('input', () => { video.currentTime = parseFloat(seek.value); });
+document.getElementById('speed-sel').addEventListener('change', e => { video.playbackRate = parseFloat(e.target.value); });
+document.getElementById('btn-cam').addEventListener('click', () => { cam3.position.set(0, 2.8, 6.2); orb.target.set(0, 1.4, 0); });
+
+window.addEventListener('resize', () => {
+  tw = threeBox.clientWidth; th = threeBox.clientHeight;
+  cam3.aspect = tw / th; cam3.updateProjectionMatrix(); ren.setSize(tw, th);
+  resizeSkel(); renderMarkers();
+});
+
+const clk = new THREE.Clock();
+function anim() { requestAnimationFrame(anim); orb.update(); if (hitFx) hitFx.update(clk.getDelta()); ren.render(scene, cam3); }
+anim();
+</script>
+</body>
+</html>

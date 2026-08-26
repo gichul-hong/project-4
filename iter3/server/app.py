@@ -19,6 +19,14 @@ static_dir = os.path.join(BASE_DIR, "static")
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+eval_video_dir = os.path.join(os.path.dirname(BASE_DIR), "eval", "video")
+os.makedirs(eval_video_dir, exist_ok=True)
+app.mount("/eval_video", StaticFiles(directory=eval_video_dir), name="eval_video")
+
+eval_output_dir = os.path.join(os.path.dirname(BASE_DIR), "eval", "output")
+os.makedirs(eval_output_dir, exist_ok=True)
+app.mount("/eval_output", StaticFiles(directory=eval_output_dir), name="eval_output")
+
 # 4인 파이터 상태 관리자
 COLLIDER_RADIUS = 2.8
 MIN_FIGHTER_DIST = COLLIDER_RADIUS * 2  # 5.6 — 두 파이터가 겹치지 않는 최소 거리
@@ -278,6 +286,73 @@ async def get_client_page(request: Request, id: str = "client_1"):
         name="fighter_client.html",
         context={"client_id": id, "name": fighter["name"], "color": fighter["color"]}
     )
+
+@app.get("/replay", response_class=HTMLResponse)
+async def get_replay_page(request: Request):
+    """비디오 입력 기반 3D 아바타 실시간 동작 리플레이 뷰어"""
+    return templates.TemplateResponse(
+        request=request,
+        name="eval_replay.html",
+        context={}
+    )
+
+@app.get("/eval", response_class=HTMLResponse)
+async def get_eval_dashboard(request: Request):
+    """녹화영상 + 3D 리플레이 + 벤치마크 정확도 통합 대시보드"""
+    return templates.TemplateResponse(
+        request=request,
+        name="eval_dashboard.html",
+        context={}
+    )
+
+@app.get("/api/eval-versions")
+async def get_eval_versions():
+    """등록된 벤치마크 평가 버전 리스트 API"""
+    runs_dir = os.path.join(os.path.dirname(BASE_DIR), "eval", "runs")
+    registry_path = os.path.join(runs_dir, "runs_registry.json")
+    if os.path.exists(registry_path):
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                return JSONResponse(json.load(f))
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"runs": []})
+
+
+@app.get("/api/eval-punches")
+async def get_eval_punches(version: str = None):
+    """벤치마크 펀치 검출 결과 CSV → JSON API (버전별 지원)"""
+    import csv
+    if version:
+        runs_dir = os.path.join(os.path.dirname(BASE_DIR), "eval", "runs", version)
+        csv_path = os.path.join(runs_dir, "punches.csv")
+    else:
+        csv_path = os.path.join(eval_output_dir, "benchmark", "punches.csv")
+
+    if not os.path.exists(csv_path):
+        return JSONResponse({"error": f"punches.csv for version '{version}' not found"}, status_code=404)
+    rows = []
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                clean_r = {k.strip().lstrip("\ufeff"): v.strip() for k, v in r.items() if k}
+                t_val = clean_r.get("t_ms")
+                if not t_val:
+                    continue
+                rows.append({
+                    "t_ms": int(float(t_val)),
+                    "frame": int(float(clean_r.get("frame", 0))),
+                    "side": clean_r.get("side", ""),
+                    "action": clean_r.get("action", ""),
+                    "speed_ms": float(clean_r.get("speed_ms", 0)),
+                    "speed_kmh": float(clean_r.get("speed_kmh", 0)),
+                    "elbow_deg": float(clean_r.get("elbow_deg", 0)),
+                    "conf_margin": float(clean_r.get("conf_margin", 0)),
+                })
+        return JSONResponse({"version": version or "latest", "punches": rows, "total": len(rows)})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/api/reset-game")
 @app.get("/api/reset-game")
