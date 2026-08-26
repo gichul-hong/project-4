@@ -369,7 +369,7 @@
       _boneDir.subVectors(b, a);
       const len = _boneDir.length();
       if (len < 1e-4) { mesh.visible = false; return; }
-      mesh.visible = true;
+      // visible 은 호출부(포즈 유무)가 결정한다 — 여기서 되켜면 팔 숨김이 무효가 된다
       mesh.position.copy(a).addScaledVector(_boneDir, 0.5);
       mesh.scale.set(1, len, 1);
       mesh.quaternion.setFromUnitVectors(_boneUp, _boneDir.normalize());
@@ -1895,6 +1895,17 @@
       // 팔꿈치는 손목의 절반만 나간다 — 이 차이가 "뻗음/접힘"으로 읽힌다
       myArms.L.elbow.position.z = -1.9 - armAnim.L * 1.5;
       myArms.R.elbow.position.z = -1.9 - armAnim.R * 1.5;
+
+      // 포즈를 놓치면 팔을 숨긴다.
+      // 손목·팔꿈치 좌표가 갱신되지 않으면 초기값(원점 근처)에 머무는데, layBone 이 그 사이를
+      // 이어 버려 **팔이 화면을 가로질러 늘어난다.** 프레임 밖으로 나갔을 때 실제로 그렇게 보인다.
+      const armsVisible = !!latestPose && myHp > 0;
+      myLeftGlove.visible = myRightGlove.visible = armsVisible;
+      ['L', 'R'].forEach(sd => {
+        myArms[sd].elbow.visible = armsVisible;
+        myArms[sd].upper.visible = armsVisible;
+        myArms[sd].fore.visible = armsVisible;
+      });
 
       // 어깨 → 팔꿈치 → 글러브 를 실제로 이어 그린다 (훅/어퍼의 형태가 보이게)
       layBone(myArms.L.upper, myArms.L.shoulder, myArms.L.elbow.position);

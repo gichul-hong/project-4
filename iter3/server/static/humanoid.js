@@ -542,12 +542,16 @@
         faceObj.mesh.position.set(0, head.position.y, faceForwardOffset(faceObj));
         rig.add(faceObj.mesh);
         head.visible = true;
-        visor.visible = false;                 // 바이저는 얼굴과 겹친다
+        // 바이저와 헤드기어는 얼굴 위를 가로지른다 — 링이 눈·코 한가운데를 지나가 버린다.
+        // 파이터 식별은 트렁크·글러브 색으로 충분하므로 얼굴이 있을 때는 둘 다 숨긴다.
+        visor.visible = false;
+        headgear.visible = false;
       } else {
         head.visible = true;
         head.scale.set(0.94, 1.10, 0.96);
         headMat.color.setHex(0xc08a63);
         visor.visible = true;
+        headgear.visible = true;
       }
     }
 
