@@ -204,6 +204,43 @@
   }
 
   /**
+   * 얼굴 텍스처에서 평균 피부톤을 뽑는다.
+   *
+   * 얼굴 메쉬만 씌우면 **두개골 구는 여전히 원래 색**이라, 얼굴 가장자리에서 색이 뚝 끊긴다.
+   * 그 경계선 때문에 "얼굴을 붙인 머리"가 아니라 "가면을 쓴 인형"으로 보인다.
+   * 머리·목·팔다리를 이 톤으로 맞추면 경계가 사라진다.
+   *
+   * 가운데(볼·코 주변)만 표본으로 쓴다 — 가장자리는 머리카락·배경이 섞여 톤을 흐린다.
+   * 너무 어둡거나(그림자) 너무 밝은(하이라이트) 픽셀도 뺀다.
+   */
+  function sampleSkinTone(image) {
+    try {
+      const W = image.naturalWidth || image.width;
+      const H = image.naturalHeight || image.height;
+      if (!W || !H) return null;
+      const c = document.createElement('canvas');
+      const N = 48;                       // 축소해서 읽는다 — 정밀도가 필요 없다
+      c.width = N; c.height = N;
+      const g = c.getContext('2d');
+      g.drawImage(image, 0, 0, N, N);
+      const d = g.getImageData(0, 0, N, N).data;
+      let r = 0, gg = 0, b = 0, n = 0;
+      for (let y = Math.floor(N * 0.30); y < N * 0.72; y++) {
+        for (let x = Math.floor(N * 0.28); x < N * 0.72; x++) {
+          const i = (y * N + x) * 4;
+          const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          if (lum < 28 || lum > 242) continue;      // 그림자·하이라이트 제외
+          r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++;
+        }
+      }
+      if (n < 40) return null;
+      return ((Math.round(r / n) << 16) | (Math.round(gg / n) << 8) | Math.round(b / n));
+    } catch (e) {
+      return null;    // 다른 출처 이미지 등으로 캔버스가 오염되면 읽을 수 없다
+    }
+  }
+
+  /**
    * 3D 얼굴 생성.
    * @param {Array}  opts.landmarks  Face Mesh 468 랜드마크 (x,y,z 정규화 좌표)
    * @param {Canvas|Image} opts.image  같은 프레임의 얼굴 사진 (텍스처)
@@ -268,10 +305,12 @@
     geo.computeVertexNormals();
 
     let tex = null;
+    let skinTone = null;
     if (opts.image) {
       tex = new THREE.CanvasTexture(opts.image);
       tex.flipY = true;
       tex.needsUpdate = true;
+      skinTone = sampleSkinTone(opts.image);
     }
 
     const mat = new THREE.MeshStandardMaterial({
@@ -478,7 +517,7 @@
       blood.geometry.dispose();
     }
 
-    return { mesh, hit, setHp, update, dispose, state: S, bounds,
+    return { mesh, hit, setHp, update, dispose, state: S, bounds, skinTone,
              triangleCount: index.length / 3 };
   };
 

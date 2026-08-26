@@ -37,13 +37,52 @@ class ArenaGameManager:
         self.faces: Dict[str, dict] = {}
         self.reset_game()
 
+    # 분노 게이지 — 맞을수록 찬다. 가득 차면 필살기를 쓸 수 있다.
+    #
+    # "맞으면 찬다"로 설계한 이유: 지고 있는 쪽에 역전 수단을 주면 경기가 끝까지 팽팽해진다.
+    # 때릴 때도 조금 차게 해서 적극적으로 싸우는 쪽이 손해 보지 않게 한다.
+    RAGE_MAX = 100.0
+    # 수치는 데미지 설계(HP 100 = 최소 10대)에 맞춰 역산했다.
+    # 한 대(데미지 6 안팎)에 약 13 이 차므로 **7~8대 맞으면 가득 찬다** —
+    # 즉 한 번 죽을 뻔할 때마다 필살기 한 번이다. 이보다 빠르면 필살기가 상시 기술이 되고,
+    # 느리면 경기 내내 한 번도 못 쓴다.
+    RAGE_ON_HIT_TAKEN = 2.2      # 맞았을 때 (데미지 1당)
+    RAGE_ON_HIT_DEALT = 0.55     # 때렸을 때 (데미지 1당) — 적극적으로 싸우는 쪽도 조금은 찬다
+    RAGE_DECAY_PER_SEC = 1.2     # 차오르는 중일 때만 식는다 (가득 찬 게이지는 유지)
+
     def reset_game(self):
         self.fighters = {
-            "client_1": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [-12, 0, 0], "world_x": -12, "world_z": 0, "yaw": -1.5708},
-            "client_2": {"name": "Cyan Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [12, 0, 0], "world_x": 12, "world_z": 0, "yaw": 1.5708},
-            "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.1416},
-            "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0},
+            "client_1": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [-12, 0, 0], "world_x": -12, "world_z": 0, "yaw": -1.5708, "rage": 0.0},
+            "client_2": {"name": "Cyan Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [12, 0, 0], "world_x": 12, "world_z": 0, "yaw": 1.5708, "rage": 0.0},
+            "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.1416, "rage": 0.0},
+            "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0, "rage": 0.0},
         }
+
+    def add_rage(self, client_id: str, amount: float):
+        """분노 게이지를 올린다. 죽은 파이터는 차지 않는다."""
+        f = self.fighters.get(client_id)
+        if not f or f.get("hp", 0) <= 0:
+            return
+        f["rage"] = min(self.RAGE_MAX, f.get("rage", 0.0) + amount)
+
+    def decay_rage(self):
+        """
+        차오르는 중인 게이지는 서서히 식는다. 맞다 말고 도망다니면 그대로 유지되면 안 된다.
+
+        **다만 가득 찬 게이지는 식지 않는다.** 그러지 않으면 100에 닿는 순간부터 곧바로 깎여
+        (실측 99.1) 사용 조건인 "가득 참"을 영영 만족하지 못한다 — 필살기를 아예 못 쓴다.
+        어렵게 채운 게이지는 쓸 때까지 유지되는 것이 규칙으로도 자연스럽다.
+        """
+        now = time.monotonic()
+        dt = now - getattr(self, "_last_rage_t", now)
+        self._last_rage_t = now
+        if dt <= 0 or dt > 2.0:
+            return
+        drop = self.RAGE_DECAY_PER_SEC * dt
+        for f in self.fighters.values():
+            r = f.get("rage", 0)
+            if 0 < r < self.RAGE_MAX:
+                f["rage"] = max(0.0, r - drop)
 
     def should_sync_state(self, interval: float = 0.5) -> bool:
         """마지막 전체 상태 브로드캐스트로부터 interval 초가 지났으면 True."""
@@ -184,12 +223,22 @@ class ArenaGameManager:
             "RIGHT_HOOK":      (7, 10.0, 0.2),
             "LEFT_UPPERCUT":   (8,  8.0, 0.3),
             "RIGHT_UPPERCUT":  (8,  8.0, 0.3),
-            "ENERGY_WAVE":     (12, 30.0, 0.3),
+            # 필살기 — 분노 게이지를 가득 채워야 쓸 수 있다.
+            # 사거리가 길고(18) 시야각이 넓어(0.1) 정면 부채꼴을 쓸어버린다.
+            "ENERGY_WAVE":     (34, 18.0, 0.1),
         }
         spec = attack_specs.get(action)
         if not spec:
             return None
         raw_dmg, max_range, dot_threshold = spec
+
+        # 필살기는 게이지가 가득 찼을 때만. 쓰면 전부 소모한다.
+        if action == "ENERGY_WAVE":
+            if attacker.get("rage", 0) < self.RAGE_MAX:
+                print(f"[ULT] {attacker_id} 게이지 부족 ({attacker.get('rage', 0):.0f}/100)", flush=True)
+                return None
+            attacker["rage"] = 0.0
+            print(f"[ULT] {attacker_id} 필살기 발동!", flush=True)
 
         # 0.3초 쿨다운
         now = asyncio.get_event_loop().time()
@@ -230,6 +279,36 @@ class ArenaGameManager:
                         best_dot = dot
                         best_target_id = target_id
 
+        # 필살기는 **부채꼴 안의 모두**를 때린다. 일반 펀치는 가장 정면인 하나만.
+        if action == "ENERGY_WAVE":
+            hits = []
+            for target_id, fighter in self.fighters.items():
+                if target_id == attacker_id or fighter.get("hp", 0) <= 0:
+                    continue
+                tx = fighter.get("world_x", 0.0)
+                tz = fighter.get("world_z", 0.0)
+                dx, dz = tx - att_x, tz - att_z
+                dist = math.hypot(dx, dz)
+                if dist <= 0.1 or dist > max_range:
+                    continue
+                if (look_dx * dx + look_dz * dz) / dist <= dot_threshold:
+                    continue
+                is_guard = (fighter.get("action") in ["TWO_HAND_GUARD", "DUAL_GUARD"])
+                # 필살기는 가드로도 절반밖에 못 막는다
+                actual = int(dmg * 0.5) if is_guard else dmg
+                fighter["hp"] = max(0, fighter["hp"] - actual)
+                self.add_rage(target_id, actual * self.RAGE_ON_HIT_TAKEN)
+                hits.append({
+                    "attacker_id": attacker_id, "target_id": target_id,
+                    "damage": actual, "is_guard": is_guard,
+                    "target_hp": fighter["hp"], "distance": round(dist, 1),
+                    "ko": fighter["hp"] <= 0, "ultimate": True,
+                })
+                print(f"[ULT] {attacker_id}->{target_id} dmg={actual} hp={fighter['hp']}", flush=True)
+                if fighter["hp"] == 0:
+                    attacker["score"] = attacker.get("score", 0) + 1
+            return hits
+
         hits = []
         if best_target_id:
             fighter = self.fighters[best_target_id]
@@ -248,7 +327,11 @@ class ArenaGameManager:
                 "distance": round(hit_dist, 1),
                 "ko": fighter["hp"] <= 0,
             })
-            print(f"[HIT] {attacker_id}->{best_target_id} dmg={actual_dmg} hp={fighter['hp']}", flush=True)
+            # 분노: 맞은 쪽이 많이, 때린 쪽도 조금
+            self.add_rage(best_target_id, actual_dmg * self.RAGE_ON_HIT_TAKEN)
+            self.add_rage(attacker_id, actual_dmg * self.RAGE_ON_HIT_DEALT)
+            print(f"[HIT] {attacker_id}->{best_target_id} dmg={actual_dmg} hp={fighter['hp']} "
+                  f"rage={self.fighters[best_target_id]['rage']:.0f}", flush=True)
             if fighter["hp"] == 0:
                 attacker["score"] = attacker.get("score", 0) + 1
         else:
@@ -374,6 +457,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             # 남고 사망 표시가 갱신되지 않는 상태가 된다. HUD의 HP 바·미니맵도 이 패킷에 의존한다.
             # 4명분 상태라 크기가 작아 0.5초 주기로 보내도 대역폭에 영향이 없다.
             if hit_results or corrections or manager.should_sync_state():
+                manager.decay_rage()
                 payload["fighters"] = manager.fighters
 
             # 위치/yaw 변경이 있거나 공격/타격이면 broadcast (idle 정지 상태만 스킵)

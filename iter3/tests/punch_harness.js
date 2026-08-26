@@ -225,5 +225,89 @@ console.log('\n--- 임계값 주입 (튜닝·실험용) ---');
   ck('기본값은 오염되지 않는다', PunchCore.PUNCH_TUNE.PUNCH_SPEED === 1.6);
 }
 
+console.log('');
+console.log('--- 필살기 (ENERGY_WAVE): 양손을 모았다가 함께 밀어내기 ---');
+{
+  /**
+   * 필살기 궤적. 두 손을 가슴 앞으로 모았다가 함께 앞으로 밀어낸다.
+   * kinematics 가 실제로 속도를 계산하도록 **좌표만** 넣는다.
+   * @param opts.gatherMs  손을 모으고 유지하는 시간
+   * @param opts.gapN      모았을 때 두 손목 사이 거리 (어깨폭 배수)
+   * @param opts.pushBoth  false 면 한 손만 밀어낸다 (펀치와 구분되는지 확인용)
+   */
+  function throwUlt(core, opts) {
+    const SH = 0.40, dt = 1 / 30;
+    const t0 = opts.t0 || 30000;
+    const gatherMs = opts.gatherMs !== undefined ? opts.gatherMs : 400;
+    const pushMs = 220;
+    const gapN = opts.gapN !== undefined ? opts.gapN : 0.40;
+    const canUse = opts.canUse !== undefined ? opts.canUse : true;
+    let out = null;
+
+    for (let ms = 0; ms <= gatherMs + pushMs * 2; ms += dt * 1000) {
+      const now = t0 + ms;
+      let reachL, reachR, gap;
+      if (ms < gatherMs) {
+        reachL = reachR = 0.42; gap = gapN;              // 모으고 대기
+      } else {
+        const u = Math.min(1, (ms - gatherMs) / pushMs);
+        const env = Math.sin(Math.min(1, u * 1.1) * Math.PI * 0.5);
+        reachR = 0.42 + 0.78 * env;
+        reachL = opts.pushBoth === false ? 0.42 : reachR;
+        gap = gapN + 0.30 * env;                          // 밀면서 조금 벌어진다
+      }
+      const mk = (side, reach, xOff) => {
+        const sh = { x: side === 'L' ? -SH / 2 : SH / 2, y: 0, z: 0 };
+        const wr = { x: xOff, y: -0.05, z: -reach * SH };
+        const el = { x: (sh.x + wr.x) / 2 + (side === 'L' ? -0.10 : 0.10),
+                     y: (sh.y + wr.y) / 2 + 0.08, z: (sh.z + wr.z) / 2 };
+        return core.kinematics(side, sh, el, wr, SH, now);
+      };
+      const kL = mk('L', reachL, -gap * SH / 2);
+      const kR = mk('R', reachR, gap * SH / 2);
+      const r = core.tryUltimate(kL, kR, gap, now, canUse);
+      if (r) { out = r; break; }
+    }
+    return out;
+  }
+
+  let c = PunchCore.createPunchCore();
+  const ult = throwUlt(c, {});
+  ck('양손을 모았다 밀면 필살기가 나간다', !!ult, ult ? ult.action : '미발동');
+  ck('액션 이름이 ENERGY_WAVE', ult && ult.action === PunchCore.ULTIMATE, ult ? ult.action : '-');
+
+  c = PunchCore.createPunchCore();
+  ck('게이지가 안 찼으면 발동하지 않는다',
+     !throwUlt(c, { canUse: false }));
+
+  c = PunchCore.createPunchCore();
+  ck('손을 모으지 않으면(벌린 채) 발동하지 않는다',
+     !throwUlt(c, { gapN: 1.20 }));
+
+  c = PunchCore.createPunchCore();
+  ck('모으는 시간이 짧으면 장전되지 않는다',
+     !throwUlt(c, { gatherMs: 90 }));
+
+  c = PunchCore.createPunchCore();
+  ck('한 손만 밀면 발동하지 않는다 (그건 펀치다)',
+     !throwUlt(c, { pushBoth: false }));
+
+  // 쿨다운
+  c = PunchCore.createPunchCore();
+  ck('첫 필살기 발동', !!throwUlt(c, { t0: 40000 }));
+  ck('쿨다운 안에는 다시 안 나간다', !throwUlt(c, { t0: 40300 }));
+  ck('쿨다운 후에는 다시 나간다', !!throwUlt(c, { t0: 42500 }));
+
+  // 장전 상태 확인
+  c = PunchCore.createPunchCore();
+  ck('장전 전에는 isUltArmed 가 false', c.isUltArmed(50000) === false);
+
+  // 필살기가 나가면 펀치 쿨다운도 걸려 곧바로 펀치가 겹치지 않는다
+  c = PunchCore.createPunchCore();
+  const u2 = throwUlt(c, { t0: 60000 });
+  ck('필살기 직후에는 펀치가 겹쳐 나가지 않는다',
+     !!u2 && c.arms.L.lastPunch === c.getLastPunchAny());
+}
+
 console.log(fail === 0 ? '\n>>> 전부 통과' : `\n>>> ${fail}개 실패`);
 process.exit(fail ? 1 : 0);

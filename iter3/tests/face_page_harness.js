@@ -11,6 +11,10 @@
  * 실제로 겪은 버그: 얼굴이 구 안쪽에 배치돼 host·1인칭 양쪽에서 아무것도 보이지 않았다.
  */
 const { open, sleep } = require('./_cdp');
+// 머리 반지름은 humanoid.js 에서 읽는다 — 비율을 바꿔도 테스트가 따라오도록
+const HEAD_R = Number(
+  require('fs').readFileSync(require('path').join(__dirname, '../server/static/humanoid.js'), 'utf8')
+    .match(/const HEAD_R = ([\d.]+)/)[1]);
 const BASE = process.argv[2] || 'https://localhost:8100';
 
 let fail = 0;
@@ -53,10 +57,11 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   if (!f) return { applied: false };
   const pos = f.mesh.geometry.attributes.position.array;
   const dz = f.mesh.position.z;
-  const R = 1.3, sx = h.head.scale.x, sy = h.head.scale.y, sz = h.head.scale.z;
+  const fk = f.mesh.scale.x;                       // 머리 크기에 맞춘 스케일
+  const R = ${HEAD_R}, sx = h.head.scale.x, sy = h.head.scale.y, sz = h.head.scale.z;
   let inside = 0, worst = Infinity;
   for (let i = 0; i < pos.length; i += 3) {
-    const x = pos[i], y = pos[i + 1], z = pos[i + 2] + dz;
+    const x = pos[i] * fk, y = pos[i + 1] * fk, z = pos[i + 2] * fk + dz;
     const e = (x/(R*sx))**2 + (y/(R*sy))**2 + (z/(R*sz))**2;
     if (e < 1) inside++;
     if (e < worst) worst = e;

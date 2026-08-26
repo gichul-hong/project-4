@@ -56,6 +56,18 @@
     HOOK_VX: 0.56,           // |vx|/speed 가 이보다 크면 훅 (옆으로 휘두름)
     HOOK_ELBOW: 158,
 
+    // ── 필살기 (ENERGY_WAVE) ──────────────────────────────────────────
+    // 손가락 랜드마크를 쓰는 제스처는 Pose 와 Hands 를 같이 돌려야 해서 FPS 가 무너진다.
+    // 그래서 **상체 7노드만으로** 정의한다: 양손을 가슴에 모았다가 함께 앞으로 밀어낸다.
+    //   (1) 두 손이 서로 가까이 모인다      — 한 손 펀치와 구분되는 결정적 신호
+    //   (2) 두 팔이 함께 빠르게 뻗어 나간다  — 회전 제스처(옆으로 쓸기)와 구분된다
+    ULT_GATHER_N: 0.62,      // 두 손목 사이 거리가 어깨폭의 이 배수 이하면 "모았다"
+    ULT_GATHER_MS: 260,      // 그 상태를 이만큼 유지해야 장전된다
+    ULT_WINDOW: 620,         // 장전 후 이 시간 안에 밀어내야 한다(ms)
+    ULT_PUSH_SPEED: 1.1,     // 양손이 함께 나가는 최소 속도 (m/s, 둘 중 느린 쪽 기준)
+    ULT_PUSH_GROW: 0.30,     // 장전 시점 대비 뻗음 증가량 (어깨폭 배수, 양팔 평균)
+    ULT_CD: 1200,            // 필살기 쿨다운(ms)
+
     // 펀치 잠금 — 이 시간 동안 자세 신호를 갱신하지 않는다.
     // 펀치는 몸통 회전(투영 어깨폭 축소)과 주먹 이동을 동반해 roll/pitch/shift를 크게 흔들기 때문에,
     // 적용만 막고 신호를 계속 적분하면 잠금이 풀리는 순간 엉뚱한 방향으로 튀어나간다.
@@ -73,6 +85,8 @@
     L: { STRAIGHT: 'LEFT_JAB',    HOOK: 'LEFT_HOOK',  UPPERCUT: 'LEFT_UPPERCUT' },
     R: { STRAIGHT: 'RIGHT_CROSS', HOOK: 'RIGHT_HOOK', UPPERCUT: 'RIGHT_UPPERCUT' },
   };
+
+  const ULTIMATE = 'ENERGY_WAVE';
 
   /** b 를 꼭짓점으로 하는 3D 내각(도). 180에 가까울수록 팔이 곧게 펴진 상태. */
   function angleDeg(a, b, c) {
@@ -104,6 +118,8 @@
     const tune = Object.assign({}, PUNCH_TUNE, overrides || {});
     const arms = { L: freshArm(), R: freshArm() };
     let lastPunchAny = -1e9;
+    // 필살기 상태: 손을 모은 시각 / 장전 여부 / 장전 시점의 평균 뻗음
+    const ult = { gatherT: 0, armedT: 0, reach0: 0, lastFire: -1e9 };
 
     /**
      * 어깨→팔꿈치→손목 운동학. 입력은 3D 미터 좌표.
@@ -190,10 +206,63 @@
       return since < tune.PUNCH_LOCK_MAX && busy;
     }
 
+    /**
+     * 필살기 판정 — 양손을 모았다가 함께 앞으로 밀어낸다.
+     *
+     * 일반 펀치와 겹치지 않게 만드는 것이 핵심이다.
+     *   · 펀치는 **한쪽 팔만** 빠르다 → 둘 중 느린 쪽 속도를 보면 갈린다
+     *   · 회전 제스처는 양손이 **옆으로** 쓸린다 → 뻗음(reach)이 늘지 않는다
+     * 여기서는 둘 다 요구하므로 다른 동작이 잘못 걸리지 않는다.
+     *
+     * @param {object} kL,kR  양팔 운동학 (kinematics 결과)
+     * @param {number} wristGapN 두 손목 사이 거리 (어깨폭 배수)
+     * @param {boolean} canUse   게이지가 찼는가 (서버가 최종 판정하지만, 못 쓸 때 장전하지 않는다)
+     * @returns {{action:string, speed:number}|null}
+     */
+    function tryUltimate(kL, kR, wristGapN, now, canUse) {
+      if (!canUse) { ult.gatherT = 0; ult.armedT = 0; return null; }
+      if (now - ult.lastFire < tune.ULT_CD) return null;
+
+      const avgReach = (kL.reachN + kR.reachN) / 2;
+
+      // (1) 손을 모으고 있는가
+      if (wristGapN <= tune.ULT_GATHER_N) {
+        if (!ult.gatherT) ult.gatherT = now;
+        if (!ult.armedT && now - ult.gatherT >= tune.ULT_GATHER_MS) {
+          ult.armedT = now;
+          ult.reach0 = avgReach;
+        }
+      } else if (!ult.armedT) {
+        ult.gatherT = 0;      // 아직 장전 전인데 손이 벌어졌다 → 처음부터
+      }
+
+      if (!ult.armedT) return null;
+      if (now - ult.armedT > tune.ULT_WINDOW) { ult.armedT = 0; ult.gatherT = 0; return null; }
+
+      // (2) 두 팔이 **함께** 빠르게 뻗어 나가는가
+      const slower = Math.min(kL.speed, kR.speed);
+      if (slower < tune.ULT_PUSH_SPEED) return null;
+      if (avgReach - ult.reach0 < tune.ULT_PUSH_GROW) return null;
+
+      ult.armedT = 0; ult.gatherT = 0;
+      ult.lastFire = now;
+      lastPunchAny = now;
+      // 양팔 창 래치도 풀어 둔다 — 필살기 직후에 펀치가 겹쳐 나가지 않게
+      arms.L.armed = false; arms.R.armed = false;
+      arms.L.lastPunch = now; arms.R.lastPunch = now;
+      return { action: ULTIMATE, kind: 'ULTIMATE', speed: (kL.speed + kR.speed) / 2 };
+    }
+
+    /** 필살기가 장전된 상태인가 (HUD 표시용) */
+    function isUltArmed(now) {
+      return !!ult.armedT && (now - ult.armedT) <= tune.ULT_WINDOW;
+    }
+
     function reset() {
       arms.L = freshArm();
       arms.R = freshArm();
       lastPunchAny = -1e9;
+      ult.gatherT = 0; ult.armedT = 0; ult.lastFire = -1e9;
     }
 
     /** 창 래치만 푼다 (포즈를 놓쳤을 때. 속도 이력은 유지) */
@@ -203,12 +272,13 @@
     }
 
     return {
-      tune, arms, PUNCH_NAME,
-      kinematics, classify, tryPunch, isLocked, reset, disarm, angleDeg,
+      tune, arms, PUNCH_NAME, ULTIMATE,
+      kinematics, classify, tryPunch, tryUltimate, isUltArmed,
+      isLocked, reset, disarm, angleDeg,
       getLastPunchAny: () => lastPunchAny,
       setLastPunchAny: (t) => { lastPunchAny = t; },
     };
   }
 
-  return { PUNCH_TUNE, PUNCH_NAME, angleDeg, createPunchCore };
+  return { PUNCH_TUNE, PUNCH_NAME, ULTIMATE, angleDeg, createPunchCore };
 });
