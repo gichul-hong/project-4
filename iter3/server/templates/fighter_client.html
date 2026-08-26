@@ -39,6 +39,27 @@
     .anim-error { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 30; display: none;
       background: rgba(120,0,20,0.94); border: 1px solid #ff3366; border-radius: 6px; padding: 8px 12px;
       font-family: var(--mono); font-size: 11px; color: #ffd7e0; white-space: pre-wrap; }
+    /* 내 HP 바 — 1인칭 화면 안에서 항상 보인다.
+       K.O. 인데도 "왜 안 움직이지"로 읽히던 문제가 여기서 해결된다. */
+    .hp-wrap { position: absolute; top: 12px; left: 12px; width: 210px; z-index: 6; font-family: var(--mono); }
+    .hp-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;
+              font-size: 11px; color: #cfd6e4; text-shadow: 0 1px 3px #000; }
+    .hp-row b { font-size: 17px; font-weight: 900; color: #fff; }
+    .hp-track { height: 13px; border-radius: 7px; background: rgba(0,0,0,0.65);
+                border: 1px solid rgba(255,255,255,0.25); overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+    .hp-fill { height: 100%; width: 100%; border-radius: 6px; background: #00ff66;
+               box-shadow: 0 0 10px currentColor; transition: width 0.18s ease-out, background-color 0.25s; }
+    /* HP가 낮을 때 맥박 — 위험을 몸으로 느끼게 */
+    .hp-fill.critical { animation: hpPulse 0.7s ease-in-out infinite; }
+    @keyframes hpPulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.9); } }
+
+    /* 미니맵 — 링 전체에서 내가 어디 있는지 */
+    .minimap { position: absolute; bottom: 62px; right: 12px; z-index: 6;
+               background: rgba(6,9,16,0.72); border: 1px solid rgba(255,255,255,0.22); border-radius: 8px;
+               padding: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.55); }
+    .minimap canvas { display: block; border-radius: 4px; }
+    .minimap-label { font-family: var(--mono); font-size: 9px; color: #7f8a9e; text-align: center; margin-top: 3px; letter-spacing: 1px; }
+
     .move-hud { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 4px 10px; font-family: var(--mono); font-size: 10px; color: #aaa; z-index: 5; white-space: pre-line; }
     footer { padding: 6px 16px; background: rgba(18,22,34,0.9); border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; font-size: 11px; color: #888; font-family: var(--mono); }
   </style>
@@ -61,6 +82,14 @@
       </div>
     </div>
     <div class="panel ring-view">
+      <div class="hp-wrap">
+        <div class="hp-row"><span>MY HP</span><b id="hp-num">100</b></div>
+        <div class="hp-track"><div class="hp-fill" id="hp-fill"></div></div>
+      </div>
+      <div class="minimap">
+        <canvas id="minimap" width="132" height="132"></canvas>
+        <div class="minimap-label">RING MAP</div>
+      </div>
       <div class="move-hud" id="move-hud">--</div>
       <div id="first-person-ring"></div>
       <div class="hit-flash" id="hit-flash"></div>
@@ -89,6 +118,10 @@
     const myHpBadge = document.getElementById('my-hp-badge');
     const hitFlash = document.getElementById('hit-flash');
     const koOverlay = document.getElementById('ko-overlay');
+    const hpFill = document.getElementById('hp-fill');
+    const hpNum = document.getElementById('hp-num');
+    const miniCanvas = document.getElementById('minimap');
+    const miniCtx = miniCanvas.getContext('2d');
     const moveHud = document.getElementById('move-hud');
     const debugInfo = document.getElementById('debug-info');
 
@@ -195,14 +228,63 @@
       pole.position.set(p[0],5,p[1]); scene.add(pole);
     });
 
-    // 내 글러브
+    // ========== 내 팔 (1인칭) ==========
+    // 글러브 두 개만 있으면 훅인지 어퍼인지 구분이 안 된다 — 궤적이 팔의 "형태"로 드러나기 때문이다.
+    // 어깨 → 팔꿈치 → 손목을 실제로 이어 그려서 팔이 접혔는지 뻗었는지, 옆에서 감아치는지가 보이게 한다.
     const gloveMat = new THREE.MeshStandardMaterial({ color: userColor, emissive: userColor, emissiveIntensity: 0.4 });
+    const upperMat = new THREE.MeshStandardMaterial({ color: 0x2b3145, roughness: 0.6, metalness: 0.1 });
+    const foreMat  = new THREE.MeshStandardMaterial({ color: 0xc89a6b, roughness: 0.65 });
+
     const myLeftGlove = new THREE.Mesh(new THREE.SphereGeometry(0.9,12,12), gloveMat);
     const myRightGlove = new THREE.Mesh(new THREE.SphereGeometry(0.9,12,12), gloveMat);
     myLeftGlove.position.set(-1.8, -1.2, -3.5);
     myRightGlove.position.set(1.8, -1.2, -3.5);
     cameraRig.add(myLeftGlove);
     cameraRig.add(myRightGlove);
+
+    // 팔꿈치 (구) — 위치는 매 프레임 포즈 랜드마크에서 갱신
+    function makeJoint() {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.52, 10, 10), foreMat);
+      cameraRig.add(m);
+      return m;
+    }
+    // 팔 마디 (원통) — 기본 방향이 +y 인 단위 실린더를 두 점 사이로 매 프레임 배치한다
+    function makeBone(mat, radius) {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.82, radius, 1, 8), mat);
+      cameraRig.add(m);
+      return m;
+    }
+
+    const myArms = {
+      L: { elbow: makeJoint(), upper: makeBone(upperMat, 0.42), fore: makeBone(foreMat, 0.34),
+           shoulder: new THREE.Vector3(-2.35, -0.35, -0.9) },
+      R: { elbow: makeJoint(), upper: makeBone(upperMat, 0.42), fore: makeBone(foreMat, 0.34),
+           shoulder: new THREE.Vector3( 2.35, -0.35, -0.9) },
+    };
+
+    // 원통을 a→b 사이에 놓는다. 길이만큼 y로 늘리고, +y를 (b-a) 방향으로 회전시킨다.
+    const _boneUp = new THREE.Vector3(0, 1, 0);
+    const _boneDir = new THREE.Vector3();
+    function layBone(mesh, a, b) {
+      _boneDir.subVectors(b, a);
+      const len = _boneDir.length();
+      if (len < 1e-4) { mesh.visible = false; return; }
+      mesh.visible = true;
+      mesh.position.copy(a).addScaledVector(_boneDir, 0.5);
+      mesh.scale.set(1, len, 1);
+      mesh.quaternion.setFromUnitVectors(_boneUp, _boneDir.normalize());
+    }
+
+    // ========== 가드 실드 (1인칭) ==========
+    // host 화면에서만 보이던 가드를 내 화면에도 띄운다 — 지금 막고 있는지 스스로 알아야 한다.
+    const myShield = new THREE.Mesh(
+      new THREE.SphereGeometry(3.4, 22, 16, 0, Math.PI * 2, 0, Math.PI / 2.2),
+      new THREE.MeshBasicMaterial({ color: userColor, wireframe: true, transparent: true, opacity: 0,
+                                    depthWrite: false })
+    );
+    myShield.rotation.x = -Math.PI / 2;   // 볼록한 면이 카메라 정면(-z)을 향하도록
+    myShield.position.set(0, -0.6, -4.2);
+    cameraRig.add(myShield);
 
     // 상대 아바타
     const worldConfigs = {
@@ -303,6 +385,107 @@
     cameraRig.position.set(playerX, 5, playerZ);
     cameraRig.rotation.y = rotationAngle;
 
+    // ========== HP 바 ==========
+    // HP 색은 3단계로 끊는다. 연속 그라디언트보다 "위험하다"가 한눈에 읽힌다.
+    function renderHpBar(hp) {
+      const v = Math.max(0, Math.min(100, hp));
+      hpNum.innerText = v;
+      hpFill.style.width = v + '%';
+      const col = v > 50 ? '#00ff66' : (v > 25 ? '#ffd23a' : '#ff3366');
+      hpFill.style.background = col;
+      hpFill.style.color = col;                      // box-shadow 의 currentColor
+      hpFill.classList.toggle('critical', v > 0 && v <= 25);
+      hpNum.style.color = v > 25 ? '#fff' : '#ff6b8a';
+    }
+    renderHpBar(100);
+
+    // ========== 미니맵 ==========
+    // 링(-16..16)을 위에서 내려다본 2D 뷰. 내가 어디 있고 누구를 보고 있는지 즉시 읽힌다.
+    const RING_HALF = 16;
+    const MINI = { pad: 8 };
+
+    function miniXY(wx, wz) {
+      const size = miniCanvas.width - MINI.pad * 2;
+      // 월드 -z 가 화면 위쪽이 되도록 (3D 정면 방향과 맞춘다)
+      return [
+        MINI.pad + (wx + RING_HALF) / (RING_HALF * 2) * size,
+        MINI.pad + (wz + RING_HALF) / (RING_HALF * 2) * size,
+      ];
+    }
+
+    function drawMinimap() {
+      const W = miniCanvas.width, H = miniCanvas.height;
+      const g = miniCtx;
+      g.clearRect(0, 0, W, H);
+
+      // 링 바닥 + 격자
+      g.fillStyle = 'rgba(18,24,38,0.92)';
+      g.strokeStyle = 'rgba(255,255,255,0.22)';
+      g.lineWidth = 1;
+      const [x0, y0] = miniXY(-RING_HALF, -RING_HALF);
+      const [x1, y1] = miniXY(RING_HALF, RING_HALF);
+      g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      g.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+      g.strokeStyle = 'rgba(255,255,255,0.08)';
+      for (let i = 1; i < 4; i++) {
+        const t = i / 4;
+        g.beginPath();
+        g.moveTo(x0 + (x1 - x0) * t, y0); g.lineTo(x0 + (x1 - x0) * t, y1);
+        g.moveTo(x0, y0 + (y1 - y0) * t); g.lineTo(x1, y0 + (y1 - y0) * t);
+        g.stroke();
+      }
+
+      // 상대들
+      Object.keys(opponentPositions).forEach(id => {
+        const t = opponentPositions[id];
+        if (!t) return;
+        const dead = (oppHp[id] !== undefined ? oppHp[id] : 100) <= 0;
+        const [px, py] = miniXY(t.x, t.z);
+        const col = '#' + ('000000' + ((worldConfigs[id] || {}).color || 0xffffff).toString(16)).slice(-6);
+        if (dead) {
+          // K.O. — X 표시. 살아있는 점과 확실히 구분돼야 조준 대상을 헷갈리지 않는다.
+          g.strokeStyle = 'rgba(255,255,255,0.35)';
+          g.lineWidth = 2;
+          g.beginPath();
+          g.moveTo(px - 4, py - 4); g.lineTo(px + 4, py + 4);
+          g.moveTo(px + 4, py - 4); g.lineTo(px - 4, py + 4);
+          g.stroke();
+        } else {
+          g.fillStyle = col;
+          g.shadowColor = col; g.shadowBlur = 7;
+          g.beginPath(); g.arc(px, py, 4.2, 0, Math.PI * 2); g.fill();
+          g.shadowBlur = 0;
+        }
+      });
+
+      // 현재 조준 대상을 잇는 선 — 지금 누구를 겨누는지 보인다
+      const tgt = findNearestOpponent();
+      if (tgt && myHp > 0) {
+        const [mx, my] = miniXY(playerX, playerZ);
+        const tp = opponentPositions[tgt.id];
+        const [tx, ty] = miniXY(tp.x, tp.z);
+        g.strokeStyle = 'rgba(255,255,255,0.30)';
+        g.setLineDash([3, 3]); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(mx, my); g.lineTo(tx, ty); g.stroke();
+        g.setLineDash([]);
+      }
+
+      // 나 — 삼각형으로 그려 바라보는 방향까지 표시한다
+      const [mx, my] = miniXY(playerX, playerZ);
+      g.save();
+      g.translate(mx, my);
+      // 월드 정면은 (-sin yaw, -cos yaw). 캔버스에서 위쪽(-y)이 월드 -z 이므로 그대로 대응된다.
+      g.rotate(-rotationAngle);
+      g.fillStyle = myHp > 0 ? userColor : '#666';
+      g.shadowColor = userColor; g.shadowBlur = myHp > 0 ? 10 : 0;
+      g.beginPath();
+      g.moveTo(0, -7.5); g.lineTo(5.2, 5.5); g.lineTo(0, 2.6); g.lineTo(-5.2, 5.5);
+      g.closePath(); g.fill();
+      g.shadowBlur = 0;
+      g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 1; g.stroke();
+      g.restore();
+    }
+
     // 키보드 (화살표 키)
     const keys = {};
     window.addEventListener('keydown', e => { keys[e.code] = true; });
@@ -332,6 +515,7 @@
           myHp = me.hp;
           myHpBadge.innerText = `HP: ${me.hp}`;
           myHpBadge.style.color = me.hp > 40 ? '#00ff66' : '#ff3366';
+          renderHpBar(me.hp);
           if (me.world_x !== undefined) playerX = me.world_x;
           if (me.world_z !== undefined) playerZ = me.world_z;
           koOverlay.style.display = me.hp <= 0 ? 'flex' : 'none';
@@ -891,12 +1075,19 @@
         }
       }
 
-      // 1인칭 글러브 좌표 (웹캠 캔버스는 좌우 반전 표시이므로 미러 좌표 사용)
+      // 1인칭 팔 좌표 (웹캠 캔버스는 좌우 반전 표시이므로 미러 좌표 사용)
+      // 손목과 팔꿈치를 같은 방식으로 옮겨야 팔의 굽힘이 화면에서 그대로 재현된다.
       if (wristOK) {
-        myLeftGlove.position.x  = ((1 - lwr.x) - 0.5) * 4.5 - 1.4;
-        myLeftGlove.position.y  = (0.55 - lwr.y) * 3.4 - 1.0;
-        myRightGlove.position.x = ((1 - rwr.x) - 0.5) * 4.5 + 1.4;
-        myRightGlove.position.y = (0.55 - rwr.y) * 3.4 - 1.0;
+        const mapX = (lx, off) => ((1 - lx) - 0.5) * 4.5 + off;
+        const mapY = (ly) => (0.55 - ly) * 3.4 - 1.0;
+        myLeftGlove.position.x  = mapX(lwr.x, -1.4);
+        myLeftGlove.position.y  = mapY(lwr.y);
+        myRightGlove.position.x = mapX(rwr.x, 1.4);
+        myRightGlove.position.y = mapY(rwr.y);
+
+        const lel = lm[P.L_EL], rel = lm[P.R_EL];
+        if (lel) { myArms.L.elbow.position.x = mapX(lel.x, -1.4); myArms.L.elbow.position.y = mapY(lel.y); }
+        if (rel) { myArms.R.elbow.position.x = mapX(rel.x,  1.4); myArms.R.elbow.position.y = mapY(rel.y); }
       }
 
       // HUD 라벨: 펀치는 0.5초간 유지, 그 외에는 현재 자세 상태
@@ -935,7 +1126,7 @@
     // ========== 메인 루프 (단일 rAF) ==========
     let lastFrameTime = performance.now();
     let renderFrames = 0, lastFpsTime = performance.now();
-    let lastCamDraw = 0;
+    let lastCamDraw = 0, lastMiniDraw = 0;
 
     let animErrShown = false;
     function animate(now) {
@@ -1148,11 +1339,29 @@
       // 타격/K.O. 이펙트 갱신
       hitFx.update(dt);
 
+      // 미니맵은 렌더보다 훨씬 느려도 충분하다 (20fps) — 매 프레임 2D 캔버스를 다시 그릴 이유가 없다
+      if (now - lastMiniDraw >= 50) { lastMiniDraw = now; drawMinimap(); }
+
       // 펀치 뻗음 → 회수 애니메이션 (-z가 정면)
       arms.L.anim = Math.max(0, arms.L.anim - dt * 3.5);
       arms.R.anim = Math.max(0, arms.R.anim - dt * 3.5);
       myLeftGlove.position.z  = -3.5 - arms.L.anim * 3.2;
       myRightGlove.position.z = -3.5 - arms.R.anim * 3.2;
+      // 팔꿈치는 손목의 절반만 나간다 — 이 차이가 "뻗음/접힘"으로 읽힌다
+      myArms.L.elbow.position.z = -1.9 - arms.L.anim * 1.5;
+      myArms.R.elbow.position.z = -1.9 - arms.R.anim * 1.5;
+
+      // 어깨 → 팔꿈치 → 글러브 를 실제로 이어 그린다 (훅/어퍼의 형태가 보이게)
+      layBone(myArms.L.upper, myArms.L.shoulder, myArms.L.elbow.position);
+      layBone(myArms.L.fore,  myArms.L.elbow.position, myLeftGlove.position);
+      layBone(myArms.R.upper, myArms.R.shoulder, myArms.R.elbow.position);
+      layBone(myArms.R.fore,  myArms.R.elbow.position, myRightGlove.position);
+
+      // 가드 실드 — 가드 중이면 정면에 홀로그램이 뜬다 (펀치 중에는 끈다)
+      const shieldOn = guardActive && !punchLocked && myHp > 0;
+      myShield.material.opacity += ((shieldOn ? 0.55 : 0) - myShield.material.opacity) * Math.min(1, dt * 12);
+      myShield.visible = myShield.material.opacity > 0.01;
+      if (myShield.visible) myShield.rotation.z += dt * 0.8;   // 천천히 회전 — 살아있는 느낌
 
       // 상대 보간
       const osmooth = 1 - Math.exp(-dt * 12);

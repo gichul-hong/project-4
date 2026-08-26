@@ -31,6 +31,7 @@ class ArenaGameManager:
         self._last_collision_time: float = 0.0
         self._collision_interval: float = 0.05  # 50ms 간격으로 충돌 체크 (초당 20회)
         self._last_positions: Dict[str, tuple] = {}  # 마지막 broadcast한 위치 캐시
+        self._last_state_sync: float = 0.0           # fighters 전체 상태를 마지막으로 실은 시각
         self.reset_game()
 
     def reset_game(self):
@@ -40,6 +41,14 @@ class ArenaGameManager:
             "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.1416},
             "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0},
         }
+
+    def should_sync_state(self, interval: float = 0.5) -> bool:
+        """마지막 전체 상태 브로드캐스트로부터 interval 초가 지났으면 True."""
+        now = time.monotonic()
+        if now - self._last_state_sync < interval:
+            return False
+        self._last_state_sync = now
+        return True
 
     def enforce_collision_throttled(self):
         """충돌 체크를 일정 간격(50ms)으로만 실행하여 CPU 부하 감소."""
@@ -327,8 +336,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             payload["client_id"] = client_id
             payload["color"] = manager.fighters.get(client_id, {}).get("color", "#FFFFFF")
             payload["hits"] = hit_results
-            # fighters 전체 상태: 타격 시 또는 충돌 보정 시 포함
-            if hit_results or corrections:
+            # fighters 전체 상태: 타격/충돌 보정 시, 그리고 최소 0.5초마다 한 번은 반드시 포함.
+            #
+            # 예전에는 타격·보정이 있을 때만 보냈다. 그러면 아무도 안 때리는 동안 클라이언트는
+            # HP도 상대 위치도 갱신받지 못한다. K.O.된 뒤 아무도 안 때리면 "왜 안 움직이지"만
+            # 남고 사망 표시가 갱신되지 않는 상태가 된다. HUD의 HP 바·미니맵도 이 패킷에 의존한다.
+            # 4명분 상태라 크기가 작아 0.5초 주기로 보내도 대역폭에 영향이 없다.
+            if hit_results or corrections or manager.should_sync_state():
                 payload["fighters"] = manager.fighters
 
             # 위치/yaw 변경이 있거나 공격/타격이면 broadcast (idle 정지 상태만 스킵)
@@ -341,7 +355,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             last_pos = manager._last_positions.get(client_id)
             pos_changed = (curr_pos != last_pos)
 
-            if is_attack or hit_results or corrections or pos_changed:
+            # "fighters 를 실었다"면 반드시 내보내야 한다. 정지 상태에서 스킵해버리면
+            # 주기 동기화가 무의미해지고, 가만히 서 있는 클라이언트는 HP를 영원히 못 받는다.
+            if is_attack or hit_results or corrections or pos_changed or "fighters" in payload:
                 manager._last_positions[client_id] = curr_pos
                 await manager.broadcast(payload)
             else:
