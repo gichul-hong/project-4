@@ -99,6 +99,18 @@
     return tris;
   }
 
+  /**
+   * FACEMESH_TESSELATION 에서 삼각형 목록을 얻는다.
+   *
+   * 이 배열은 **삼각형 목록에서 생성된 것**이라 3개씩 묶으면 한 삼각형의 세 변이다:
+   *   [a,b], [b,c], [c,a]  →  삼각형 (a,b,c)
+   * 실제로 확인했다 — 852개 그룹 전부가 닫힌 삼각형이고 어긋나는 그룹은 0개다.
+   *
+   * 3-사이클 탐색(trianglesFromEdges)으로도 852개를 전부 찾지만 **면이 아닌 가짜 삼각형 2개**를
+   * 더 만들어낸다(854개). 그래프에는 존재하지만 메쉬의 면은 아닌 3-사이클이다.
+   * 그 2개가 얼굴 위에 엉뚱한 폴리곤으로 얹혀 렌더가 지저분해진다.
+   * 정확한 목록을 그대로 읽을 수 있으므로 추측할 이유가 없다.
+   */
   function getTriangles() {
     if (cachedTris) return cachedTris;
     const tess = (typeof FACEMESH_TESSELATION !== 'undefined') ? FACEMESH_TESSELATION
@@ -107,7 +119,17 @@
       console.error('[face3d.js] FACEMESH_TESSELATION 없음 — face_mesh.js 를 먼저 로드하세요');
       return null;
     }
-    cachedTris = trianglesFromEdges(tess);
+
+    const tris = [];
+    let grouped = true;
+    for (let i = 0; i + 2 < tess.length; i += 3) {
+      const e0 = tess[i], e1 = tess[i + 1], e2 = tess[i + 2];
+      if (e0[1] !== e1[0] || e1[1] !== e2[0] || e2[1] !== e0[0]) { grouped = false; break; }
+      tris.push(e0[0], e1[0], e2[0]);
+    }
+    // 형식이 예상과 다르면(라이브러리 버전 차이 등) 3-사이클 탐색으로 폴백한다
+    cachedTris = grouped ? tris : trianglesFromEdges(tess);
+    if (!grouped) console.warn('[face3d.js] 테셀레이션이 3개씩 묶이지 않음 — 3-사이클 탐색으로 폴백');
     return cachedTris;
   }
 
@@ -206,12 +228,16 @@
     // 해상도를 그만큼 버리게 된다. crop 이 주어지면 그 사각형 기준으로 UV 를 다시 잡는다.
     const crop = opts.crop;   // { x0, y0, w, h } — 원본 이미지 픽셀 단위
     const IW = opts.imageW || 1, IH = opts.imageH || 1;
+    // UV 는 **텍스처를 딴 바로 그 프레임의 랜드마크**로 계산해야 한다.
+    // 형태(geometry)는 여러 프레임을 평균내 안정화하지만, 그 평균 좌표로 UV 를 잡으면
+    // 텍스처와 미세하게 어긋나 눈·입이 밀린 "남의 얼굴"처럼 보인다.
+    const uvLm = (opts.uvLandmarks && opts.uvLandmarks.length === lm.length) ? opts.uvLandmarks : lm;
     const uv = new Float32Array(lm.length * 2);
     for (let i = 0; i < lm.length; i++) {
-      let u = lm[i].x, v = lm[i].y;
+      let u = uvLm[i].x, v = uvLm[i].y;
       if (crop) {
-        u = (lm[i].x * IW - crop.x0) / crop.w;
-        v = (lm[i].y * IH - crop.y0) / crop.h;
+        u = (uvLm[i].x * IW - crop.x0) / crop.w;
+        v = (uvLm[i].y * IH - crop.y0) / crop.h;
       }
       uv[i * 2] = u;
       uv[i * 2 + 1] = 1 - v;
@@ -446,20 +472,27 @@
    * 랜드마크 + 사진을 네트워크로 보낼 수 있는 형태로 만든다.
    * 좌표는 소수 4자리로 자른다 — 468×3 을 그대로 보내면 JSON 이 3배로 부푼다.
    */
-  window.serializeFace = function (landmarks, canvas, meta, quality) {
-    const lm = new Array(landmarks.length * 3);
+  function flatten(landmarks) {
+    const out = new Array(landmarks.length * 3);
     for (let i = 0; i < landmarks.length; i++) {
-      lm[i * 3]     = Math.round(landmarks[i].x * 10000) / 10000;
-      lm[i * 3 + 1] = Math.round(landmarks[i].y * 10000) / 10000;
-      lm[i * 3 + 2] = Math.round(landmarks[i].z * 10000) / 10000;
+      out[i * 3]     = Math.round(landmarks[i].x * 10000) / 10000;
+      out[i * 3 + 1] = Math.round(landmarks[i].y * 10000) / 10000;
+      out[i * 3 + 2] = Math.round(landmarks[i].z * 10000) / 10000;
     }
+    return out;
+  }
+
+  window.serializeFace = function (landmarks, canvas, meta, quality) {
+    const m = meta || {};
     return {
-      lm,
+      lm: flatten(landmarks),
+      // 텍스처를 딴 프레임의 랜드마크 (UV 전용). 없으면 수신 측이 lm 을 그대로 쓴다.
+      uvLm: m.uvLandmarks ? flatten(m.uvLandmarks) : null,
       tex: canvas.toDataURL('image/jpeg', quality || 0.72),
-      aspect: (meta && meta.aspect) || 1,
-      crop: (meta && meta.crop) || null,
-      imageW: (meta && meta.imageW) || 1,
-      imageH: (meta && meta.imageH) || 1,
+      aspect: m.aspect || 1,
+      crop: m.crop || null,
+      imageW: m.imageW || 1,
+      imageH: m.imageH || 1,
     };
   };
 
@@ -467,12 +500,15 @@
   window.createFace3DFromBlob = function (blob, color, width) {
     return new Promise((resolve) => {
       if (!blob || !blob.lm || !blob.tex) { resolve(null); return; }
-      const landmarks = [];
-      for (let i = 0; i < blob.lm.length; i += 3) {
-        landmarks.push({ x: blob.lm[i], y: blob.lm[i + 1], z: blob.lm[i + 2] });
-      }
+      const unflatten = (arr) => {
+        const out = [];
+        for (let i = 0; i < arr.length; i += 3) out.push({ x: arr[i], y: arr[i + 1], z: arr[i + 2] });
+        return out;
+      };
+      const landmarks = unflatten(blob.lm);
+      const uvLandmarks = blob.uvLm ? unflatten(blob.uvLm) : null;
       const mk = (image) => window.createFace3D({
-        landmarks, image, color, width,
+        landmarks, uvLandmarks, image, color, width,
         aspect: blob.aspect, crop: blob.crop, imageW: blob.imageW, imageH: blob.imageH,
       });
       const img = new Image();

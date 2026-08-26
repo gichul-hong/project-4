@@ -149,5 +149,41 @@ console.log('\n--- (D) 연타를 멈추면 즉시 정상 판정으로 복귀 ---
   ck('잠금이 풀린 뒤 진짜 후진은 정상 인식', sim.get().moveState === 'BACK', sim.get().moveState);
 }
 
+console.log('');
+console.log('--- 전진/후진 비대칭 (실사용 피드백: 전진이 너무 빡빡했다) ---');
+{
+  /** 주어진 pitch 를 계속 유지하면 어떤 상태로 확정되는지 */
+  let clock = 500000;
+  function settle(pitch) {
+    // 반드시 중립(NONE)에서 출발해야 한다. 상태 머신에 히스테리시스가 있어
+    // 이전 상태가 남아 있으면 PITCH_ON 이 아니라 PITCH_OFF 로 판정돼 측정이 오염된다.
+    sim.set({ locked: false, sRoll: 0, sPitch: 0 });
+    for (let i = 0; i < 60; i++) { clock += DT * 1000; sim.step(clock, DT); }
+    sim.set({ locked: false, sRoll: 0, sPitch: pitch });
+    for (let i = 0; i < 90; i++) { clock += DT * 1000; sim.step(clock, DT); }
+    return sim.get().moveState;
+  }
+  /** 상태가 켜지는 최소 |pitch| 를 이분 탐색으로 찾는다 */
+  function threshold(sign, want) {
+    let lo = 0, hi = 0.5;
+    for (let i = 0; i < 22; i++) {
+      const mid = (lo + hi) / 2;
+      if (settle(sign * mid) === want) hi = mid; else lo = mid;
+    }
+    return hi;
+  }
+  const fwd = threshold(1, 'FORWARD');
+  const back = threshold(-1, 'BACK');
+  console.log('       전진 발동 임계 ' + fwd.toFixed(3) + ' · 후진 발동 임계 ' + back.toFixed(3));
+  ck('전진이 후진보다 쉽게 걸린다', fwd < back, fwd.toFixed(3) + ' < ' + back.toFixed(3));
+  ck('전진 임계가 충분히 낮다 (<=0.12)', fwd <= 0.12, fwd.toFixed(3));
+  ck('후진 임계가 충분히 높다 (>=0.15)', back >= 0.15, back.toFixed(3));
+  ck('설정값과 일치 (전진)', Math.abs(fwd - TUNE.PITCH_ON) < 0.01,
+     fwd.toFixed(3) + ' vs ' + TUNE.PITCH_ON);
+  ck('설정값과 일치 (후진)', Math.abs(back - TUNE.PITCH_BACK_ON) < 0.01,
+     back.toFixed(3) + ' vs ' + TUNE.PITCH_BACK_ON);
+  ck('중립(0)에서는 아무 상태도 안 걸린다', settle(0) === 'NONE', settle(0));
+}
+
 console.log(fail === 0 ? '\n>>> 전부 통과' : `\n>>> ${fail}개 실패`);
 process.exit(fail ? 1 : 0);

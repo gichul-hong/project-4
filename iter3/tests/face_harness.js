@@ -163,11 +163,50 @@ function makeSyntheticFace() {
   return lm;
 }
 
-/** 얼굴 전체를 덮는 테셀레이션 (연속 인덱스로 팬 구성) */
+/**
+ * 얼굴 전체를 덮는 테셀레이션.
+ * 실제 FACEMESH_TESSELATION 과 같은 형식으로 만든다 — 삼각형 (a,b,c) 마다
+ * [a,b], [b,c], [c,a] 세 변을 **순서대로** 넣는다. getTriangles 의 주 경로가 이 형식을 읽는다.
+ */
 function fullTessellation(n) {
   const E = [];
-  for (let i = 1; i < n - 1; i++) E.push([0, i], [i, i + 1], [0, i + 1]);
+  for (let i = 1; i < n - 1; i++) E.push([0, i], [i, i + 1], [i + 1, 0]);
   return E;
+}
+
+/** 3개씩 묶이지 않는(형식이 깨진) 테셀레이션 — 폴백 경로 확인용 */
+function scrambledTessellation(n) {
+  const E = [];
+  for (let i = 1; i < n - 1; i++) E.push([0, i], [i + 1, 0], [i, i + 1]);   // 순서 뒤섞음
+  return E;
+}
+
+console.log('');
+console.log('--- 테셀레이션 읽기: 정확한 목록 우선, 형식이 깨지면 폴백 ---');
+{
+  const reload = () => {
+    delete require.cache[require.resolve('../server/static/face3d.js')];
+    require('../server/static/face3d.js');
+  };
+  const TRI_N = 40;
+
+  // (1) 실제 형식 — 3개씩 묶인 목록을 그대로 읽는다
+  global.FACEMESH_TESSELATION = fullTessellation(TRI_N);
+  reload();
+  const lmA = [];
+  for (let i = 0; i < 468; i++) lmA.push({ x: 0.5 + i * 1e-4, y: 0.5 - i * 1e-4, z: i * 1e-4 });
+  lmA[234] = { x: 0.3, y: 0.5, z: 0 };
+  lmA[454] = { x: 0.7, y: 0.5, z: 0 };
+  const fA = window.createFace3D({ landmarks: lmA, image: null, width: 2.6, aspect: 1 });
+  ck('3개씩 묶인 목록을 그대로 읽는다', fA && fA.triangleCount === TRI_N - 2,
+     `${fA ? fA.triangleCount : 0}개 (기대 ${TRI_N - 2})`);
+
+  // (2) 형식이 깨졌을 때 — 3-사이클 폴백으로도 메쉬가 만들어진다
+  global.FACEMESH_TESSELATION = scrambledTessellation(TRI_N);
+  reload();
+  const fB = window.createFace3D({ landmarks: lmA, image: null, width: 2.6, aspect: 1 });
+  ck('형식이 깨지면 3-사이클로 폴백한다', fB && fB.triangleCount > 0,
+     `${fB ? fB.triangleCount : 0}개`);
 }
 
 console.log('');

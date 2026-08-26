@@ -71,7 +71,7 @@
     const accentMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4, metalness: 0.3 });
     const gloveMat  = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.35 });
     const visorMat  = new THREE.MeshBasicMaterial({ color: color });
-    const fadeMats  = [outfitMat, skinMat, accentMat, gloveMat, visorMat];
+    const fadeMats  = [outfitMat, skinMat, accentMat, gloveMat, visorMat];   // headMat 은 아래에서 추가
 
     // ---------- 몸통 / 골반 ----------
     const torso = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 3.2, 10), outfitMat);
@@ -87,9 +87,14 @@
     neck.position.y = 4.85;
     rig.add(neck);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 20, 16), accentMat);
+    // 머리는 전용 머티리얼을 쓴다 — accentMat 을 공유하면 3D 얼굴을 씌울 때
+    // 발/머리띠 등 accentMat 을 쓰는 다른 부위 색까지 같이 바뀐다.
+    const headMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4, metalness: 0.3 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 20, 16), headMat);
     head.position.y = 5.7;
     rig.add(head);
+
+    fadeMats.push(headMat);
 
     const visor = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.35, 0.55), visorMat);
     visor.position.set(0, 5.7, 1.15);
@@ -246,13 +251,20 @@
       if (faceObj && faceObj.mesh && faceObj.mesh.parent) rig.remove(faceObj.mesh);
       faceObj = face || null;
       if (faceObj && faceObj.mesh) {
-        // 구 머리(반지름 1.3)와 같은 자리·크기. 바이저는 얼굴과 겹치므로 같이 숨긴다.
-        faceObj.mesh.position.set(0, head.position.y, 0.35);
+        // Face Mesh 는 얼굴 **앞면만** 덮는다. 구 머리를 숨겨버리면 뒤통수가 없는
+        // "떠 있는 가면"이 된다. 구는 두개골로 남겨 두고 얼굴을 그 앞면에 얹는다.
+        faceObj.mesh.position.set(0, head.position.y, 0.62);
         rig.add(faceObj.mesh);
-        head.visible = false;
-        visor.visible = false;
+        head.visible = true;
+        head.scale.set(0.92, 0.98, 0.92);      // 얼굴이 살짝 튀어나오도록 살만 줄인다
+        headMat.color.setHex(0x2a2f3e);        // 두개골은 어둡게 — 얼굴이 도드라진다
+        headMat.emissive.setHex(0x000000);
+        visor.visible = false;                 // 바이저는 얼굴과 겹친다
       } else {
         head.visible = true;
+        head.scale.set(1, 1, 1);
+        headMat.color.setHex(color);
+        headMat.emissive.setHex(0x000000);
         visor.visible = true;
       }
     }

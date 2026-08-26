@@ -53,8 +53,11 @@
 
 | 모션 | 몸 동작 | 판정 조건 | 임계값(진입/해제) |
 | :--- | :--- | :--- | :--- |
-| **FORWARD** | 앞으로 숙임 | 어깨 평행 + 얼굴·주먹이 **아래로** | pitch `+0.18 / +0.11` |
-| **BACK** | 뒤로 젖힘 | 어깨 평행 + 얼굴·주먹이 **위로** | pitch `−0.18 / −0.11` |
+| **FORWARD** | 앞으로 숙임 | 어깨 평행 + 얼굴·주먹이 **아래로** | pitch `+0.105 / +0.065` |
+| **BACK** | 뒤로 젖힘 | 어깨 평행 + 얼굴·주먹이 **위로** | pitch `−0.175 / −0.115` |
+
+> **전진이 후진보다 쉽게 걸립니다** (12차에서 뒤집음). 전진 신호는 얼굴·주먹·어깨폭 여러 항으로
+> 분산되는 반면 후진은 얼굴이 올라가는 한 신호로 곧장 잡혀서, 같은 임계값이면 후진만 과하게 걸립니다.
 | **LEFT / RIGHT** | 좌·우로 기울임 | **어깨선 자체가 기울어짐** | roll `12° / 7°` |
 | **ROT_LEFT / ROT_RIGHT** | 주먹을 좌·우로 쓸기 | 어깨 평행 + **양 손목이 같은 방향으로** 이동 | shift `0.40 / 0.24` |
 
@@ -281,14 +284,14 @@ iter2/
 
 ## 🔗 7. 관련 문서
 
-- [`tests/`](./tests/) — 헤드리스 검증 하니스 6종 (84개 항목)
+- [`tests/`](./tests/) — 헤드리스 검증 하니스 8종 (142개 항목)
   ```
   cd iter3/tests
   node pose_harness.js && node effects_harness.js && node aim_harness.js
-  node move_harness.js && node face_harness.js
+  node move_harness.js && node face_harness.js && node punch_harness.js
   node page_harness.js && node match_harness.js      # 서버가 떠 있어야 함
   ```
-  앞 5종은 THREE 최소 스텁 위에서 로직만 보고, 뒤 2종은 **헤드리스 Chrome/Edge 로 페이지를 실제로 띄워**
+  앞 6종은 THREE 최소 스텁 위에서 로직만 보고, 뒤 2종은 **헤드리스 Chrome/Edge 로 페이지를 실제로 띄워**
   런타임 예외·렌더 여부·경기 규칙을 확인한다 (npm 설치 불필요 — Node 22 내장 fetch/WebSocket 사용).
   두 계층이 다 필요하다 — 1인칭 화면이 통째로 검게 나온 `fx` 이름 충돌과, 얼굴 삼각형이 4배로
   중복되던 버그는 **로직 하니스가 전부 통과시키고 브라우저 쪽에서만 드러났다.**

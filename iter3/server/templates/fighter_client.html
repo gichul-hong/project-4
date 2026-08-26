@@ -13,7 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <!-- Face Mesh 는 "얼굴 등록" 캡처 순간에만 돌린다. 게임 중에는 Pose 만 돌아 FPS 영향이 없다. -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="/static/face3d.js?v=2"></script>
+  <script src="/static/face3d.js?v=3"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -78,6 +78,9 @@
     .face-btn { margin-top: 12px; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer;
       background: var(--f-color); color: #04060a; font-weight: 800; font-size: 12px; font-family: var(--mono); }
     .face-btn.ghost { background: rgba(255,255,255,0.12); color: #cfd8e6; margin-left: 6px; }
+    /* 복원 결과 미리보기 — 내 얼굴은 1인칭에서 볼 수 없으므로 여기서 확인한다 */
+    .face-preview { display: none; margin-top: 8px; width: 150px; height: 150px;
+      border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(0,0,0,0.35); }
     .badge.act { cursor: pointer; }
 
     .move-hud { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 4px 10px; font-family: var(--mono); font-size: 10px; color: #aaa; z-index: 5; white-space: pre-line; }
@@ -102,6 +105,7 @@
         <h3 id="face-title">얼굴을 원 안에 맞추고 정면을 보세요</h3>
         <p id="face-desc">Face Mesh 468개 랜드마크로 3D 얼굴을 복원합니다.<br>안경·모자는 벗는 편이 정확합니다.</p>
         <div class="count" id="face-count"></div>
+        <div class="face-preview" id="face-preview"></div>
         <div>
           <button class="face-btn" id="face-start">촬영 시작</button>
           <button class="face-btn ghost" id="face-skip">나중에</button>
@@ -655,8 +659,13 @@
       // --- 앞/뒤: 얼굴·주먹의 수직 이동 종합 점수 ---
       // 사람은 앞으로는 크게 숙일 수 있지만 뒤로는 균형상 조금밖에 못 젖힌다.
       // 대칭 임계값을 쓰면 후진만 임계값에 못 닿으므로 뒤쪽을 더 낮게 잡는다.
-      PITCH_ON: 0.16, PITCH_OFF: 0.10, PITCH_RANGE: 0.28,
-      PITCH_BACK_ON: 0.12, PITCH_BACK_OFF: 0.07, PITCH_BACK_RANGE: 0.20,
+      // 전진/후진 비대칭 (2026-08-26 실사용 피드백으로 뒤집음).
+      // 4차에서는 "사람은 뒤로 조금밖에 못 젖히므로 후진을 낮게" 잡았는데, 실제로 해 보니
+      // 정반대였다 — 전진은 크게 숙여야 겨우 걸리고 후진은 툭하면 걸려 코너까지 밀렸다.
+      // 원인은 전진 신호가 어깨폭·상체하강 등 여러 항으로 분산되는 반면,
+      // 후진은 얼굴이 올라가는 한 가지 신호로 곧장 잡히기 때문이다.
+      PITCH_ON: 0.105, PITCH_OFF: 0.065, PITCH_RANGE: 0.22,
+      PITCH_BACK_ON: 0.175, PITCH_BACK_OFF: 0.115, PITCH_BACK_RANGE: 0.24,
       // --- 회전: 주먹의 좌/우 이동 ---
       SHIFT_ON: 0.40, SHIFT_OFF: 0.24, SHIFT_RANGE: 0.45,
       // --- 오검출 억제 (프레임 수가 아니라 시간 기준) ---
@@ -665,12 +674,15 @@
       HOLD_OFF_MS: 120,
       // --- 펀치 (3D world 랜드마크, 거리는 어깨폭 배수) ---
       // 속도·뻗음이 같은 프레임에 겹치지 않아도 되도록 "창(window)" 안에서 누적 판정한다.
-      PUNCH_ARM: 1.2,          // 창을 여는 손목 속도 (m/s)
-      PUNCH_EXTEND: 0.45,      // 창을 여는 어깨→손목 거리 증가율 (m/s)
-      PUNCH_SPEED: 2.0,        // 창 안에서 도달해야 하는 최고 손목 속도 (m/s)
-      PUNCH_REACH_N: 0.95,     // 발사 시점의 팔 뻗음 (어깨폭 배수)
-      PUNCH_GROW_N: 0.30,      // 또는 창 시작 대비 뻗음 증가량 (훅·어퍼컷용)
-      PUNCH_WINDOW: 320,       // 창 유효 시간(ms)
+      // 잽은 "짧고 빠른" 펀치라 스트레이트 기준으로 잡으면 걸리지 않는다.
+      // 리치가 짧고(어깨폭 0.9배 남짓) 신전 시간도 0.11초 안팎이라 최고 속도가 낮게 찍힌다.
+      // punch_harness.js 가 완화와 오검출 사이의 균형을 잡아 준다.
+      PUNCH_ARM: 1.0,          // 창을 여는 손목 속도 (m/s)
+      PUNCH_EXTEND: 0.40,      // 창을 여는 어깨→손목 거리 증가율 (m/s)
+      PUNCH_SPEED: 1.6,        // 창 안에서 도달해야 하는 최고 손목 속도 (m/s)
+      PUNCH_REACH_N: 0.88,     // 발사 시점의 팔 뻗음 (어깨폭 배수)
+      PUNCH_GROW_N: 0.28,      // 또는 창 시작 대비 뻗음 증가량 (훅·어퍼컷용)
+      PUNCH_WINDOW: 380,       // 창 유효 시간(ms)
       PUNCH_CD: 400,           // 같은 팔 재발동 쿨다운(ms)
       PUNCH_CD_ANY: 200,       // 양팔 공통 쿨다운(ms)
       GUARD_HOLD_MS: 160,
@@ -785,8 +797,10 @@
     // 손목 궤적 방향 + 팔꿈치 각도로 펀치 종류 판정
     function classifyPunch(k) {
       const s = Math.max(k.speed, 1e-3);
-      if (-k.vy / s > 0.48 && k.elbow < 155) return "UPPERCUT";      // 아래→위, 팔 접힘
-      if (Math.abs(k.vx) / s > 0.50 && k.elbow < 165) return "HOOK"; // 옆으로 휘두름
+      // 임계값을 조금 올렸다. 잽을 완화하면 약간 비스듬한 잽이 훅/어퍼로 새기 쉬운데,
+      // 실제 훅/어퍼는 이 값을 훌쩍 넘긴다(하니스 실측 0.78~0.80). 여유가 충분하다.
+      if (-k.vy / s > 0.55 && k.elbow < 150) return "UPPERCUT";      // 아래→위, 팔 접힘
+      if (Math.abs(k.vx) / s > 0.56 && k.elbow < 158) return "HOOK"; // 옆으로 휘두름
       return "STRAIGHT";
     }
 
@@ -1247,11 +1261,37 @@
       }
 
       // 여러 프레임의 랜드마크를 평균낸다 — 한 프레임만 쓰면 추정 지터가 그대로 얼굴 굴곡이 된다
-      capState.frames.push(lm.map(q => ({ x: q.x, y: q.y, z: q.z })));
-      // 텍스처는 얼굴이 가장 크게 잡힌 프레임에서 딴다
+      const snap = lm.map(q => ({ x: q.x, y: q.y, z: q.z }));
+      capState.frames.push(snap);
+
+      // 텍스처는 얼굴이 가장 크게 잡힌 프레임에서 딴다.
+      //
+      // **반드시 그 자리에서 픽셀을 복사해야 한다.** MediaPipe 는 res.image 캔버스를
+      // 프레임마다 재사용하므로, 참조만 들고 있으면 캡처가 끝날 때쯤엔 이미 다른(나중) 프레임의
+      // 그림으로 덮여 있다. 그 결과 텍스처와 랜드마크가 어긋나 "내 얼굴이 아닌" 얼굴이 나온다.
+      // 같은 이유로 그 프레임의 랜드마크도 함께 붙잡아 UV 계산에 쓴다.
       if (!capState.best || span.w > capState.best.span.w) {
-        capState.best = { image: res.image, span: span };
+        const src = res.image;
+        const W = src.width || videoElement.videoWidth || 480;
+        const H = src.height || videoElement.videoHeight || 360;
+        if (!capState.frameCanvas) capState.frameCanvas = document.createElement('canvas');
+        const fc = capState.frameCanvas;
+        if (fc.width !== W || fc.height !== H) { fc.width = W; fc.height = H; }
+        fc.getContext('2d').drawImage(src, 0, 0, W, H);
+        capState.best = { image: fc, span: span, lm: snap, W: W, H: H };
       }
+      // 촬영 중에 얼굴이 크게 움직이면 평균이 뭉개진다. 코끝이 많이 튀면 모은 것을 버리고 다시 시작.
+      if (capState.frames.length > 1) {
+        const prev = capState.frames[capState.frames.length - 2][1];
+        const cur = snap[1];
+        if (Math.hypot(cur.x - prev.x, cur.y - prev.y) > 0.020) {
+          capState.frames = [snap];
+          capEls.title.innerText = '움직임 감지 — 다시 모으는 중';
+          capEls.count.innerText = '1/' + capState.want;
+          return;
+        }
+      }
+
       const got = capState.frames.length, want = capState.want;
       capEls.title.innerText = '촬영 중 — 그대로 계세요';
       capEls.count.innerText = got + '/' + want;
@@ -1275,9 +1315,8 @@
       const st = capState;
       capState = null;
       const lm = averageLandmarks(st.frames);
-      const img = st.best.image;
-      const IW = img.width || videoElement.videoWidth || 480;
-      const IH = img.height || videoElement.videoHeight || 360;
+      const img = st.best.image;          // 그 자리에서 복사해 둔 캔버스
+      const IW = st.best.W, IH = st.best.H;
 
       // 얼굴 주변만 잘라 텍스처로 쓴다 — 전체 프레임을 쓰면 해상도의 2/3 를 배경에 버린다
       const sp = st.best.span;
@@ -1295,7 +1334,8 @@
         aspect: IW / IH,
         crop: { x0: cx0, y0: cy0, w: cw, h: ch },
         imageW: IW, imageH: IH,
-      }, 0.75);
+        uvLandmarks: st.best.lm,     // 텍스처를 딴 바로 그 프레임의 좌표 — UV 정합용
+      }, 0.82);
 
       stopCapture();
       capEls.title.innerText = '복원 완료 — 아바타에 적용했습니다';
@@ -1310,7 +1350,44 @@
         socket.send(JSON.stringify({ type: 'face', face: blob }));
       }
       myFaceBlob = blob;
-      setTimeout(function () { if (!captureMode) capEls.box.classList.remove('on'); }, 2000);
+
+      // 내 얼굴은 1인칭에서 볼 수 없다(내가 카메라니까). 복원 결과를 확인할 수 있도록
+      // 캡처 오버레이에 회전하는 미리보기를 띄운다. 잘못 나왔으면 바로 다시 찍으면 된다.
+      showFacePreview(blob);
+    }
+
+    // 복원된 얼굴을 작은 3D 뷰로 보여준다 (촬영 확인용)
+    let preview = null;
+    function showFacePreview(blob) {
+      const host = document.getElementById('face-preview');
+      if (!host) return;
+      host.style.display = 'block';
+      if (!preview) {
+        const r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        r.setSize(150, 150); r.setPixelRatio(1);
+        host.appendChild(r.domElement);
+        const sc = new THREE.Scene();
+        const cam = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+        cam.position.set(0, 0, 9);
+        sc.add(new THREE.AmbientLight(0xffffff, 0.95));
+        const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(1, 1, 2); sc.add(dl);
+        const pivot = new THREE.Group(); sc.add(pivot);
+        preview = { r, sc, cam, pivot, face: null };
+        (function spin() {
+          requestAnimationFrame(spin);
+          if (host.style.display === 'none') return;
+          // 좌우로 살랑살랑 — 한 바퀴 돌리면 뒤통수(빈 면)가 보인다
+          pivot.rotation.y = Math.sin(performance.now() * 0.0009) * 0.75;
+          if (preview.face) preview.face.update(1 / 60);
+          r.render(sc, cam);
+        })();
+      }
+      if (preview.face) { preview.pivot.remove(preview.face.mesh); preview.face.dispose(); preview.face = null; }
+      window.createFace3DFromBlob(blob, parseInt(userColor.replace('#', ''), 16), 3.4).then(f => {
+        if (!f) return;
+        preview.face = f;
+        preview.pivot.add(f.mesh);
+      });
     }
 
     function startCapture() {
@@ -1319,6 +1396,7 @@
       capEls.count.innerText = '';
       capEls.title.innerText = '얼굴을 원 안에 맞추세요';
       capEls.start.innerText = '촬영 시작';
+      hidePreview();
       captureMode = true;
       ensureFaceMesh();
     }
@@ -1335,13 +1413,18 @@
       capEls.guide.classList.remove('ok');
     }
 
+    function hidePreview() {
+      const host = document.getElementById('face-preview');
+      if (host) host.style.display = 'none';
+    }
+
     capEls.btn.addEventListener('click', function () {
-      if (captureMode) { stopCapture(); capEls.box.classList.remove('on'); }
+      if (captureMode) { stopCapture(); hidePreview(); capEls.box.classList.remove('on'); }
       else startCapture();
     });
-    capEls.start.addEventListener('click', armCapture);
+    capEls.start.addEventListener('click', function () { hidePreview(); armCapture(); });
     capEls.skip.addEventListener('click', function () {
-      stopCapture(); capEls.box.classList.remove('on');
+      stopCapture(); hidePreview(); capEls.box.classList.remove('on');
     });
 
     // Camera
