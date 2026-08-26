@@ -243,6 +243,20 @@
       uv[i * 2 + 1] = 1 - v;
     }
 
+    // 얼굴의 실제 크기·깊이. 머리에 붙일 때 "구 안에 파묻히지 않게" 배치하려면
+    // 얼굴이 z로 어디서 어디까지 뻗는지 호출부가 알아야 한다.
+    const bounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity,
+                     zMin: Infinity, zMax: -Infinity };
+    for (let i = 0; i < lm.length; i++) {
+      const x = basePos[i * 3], y = basePos[i * 3 + 1], z = basePos[i * 3 + 2];
+      if (x < bounds.xMin) bounds.xMin = x;
+      if (x > bounds.xMax) bounds.xMax = x;
+      if (y < bounds.yMin) bounds.yMin = y;
+      if (y > bounds.yMax) bounds.yMax = y;
+      if (z < bounds.zMin) bounds.zMin = z;
+      if (z > bounds.zMax) bounds.zMax = z;
+    }
+
     const geo = new THREE.BufferGeometry();
     const livePos = new Float32Array(basePos);          // 변형이 적용된 실제 정점
     geo.setAttribute('position', new THREE.BufferAttribute(livePos, 3));
@@ -464,7 +478,8 @@
       blood.geometry.dispose();
     }
 
-    return { mesh, hit, setHp, update, dispose, state: S, triangleCount: index.length / 3 };
+    return { mesh, hit, setHp, update, dispose, state: S, bounds,
+             triangleCount: index.length / 3 };
   };
 
   // ── 직렬화 (네트워크 전송용) ───────────────────────────────────────────

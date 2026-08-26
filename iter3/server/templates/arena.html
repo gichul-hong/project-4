@@ -10,6 +10,10 @@
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
   <script src="/static/humanoid.js?v=4"></script>
   <script src="/static/effects.js?v=2"></script>
+  <!-- Face Mesh 라이브러리 — host 는 얼굴을 "촬영"하지는 않지만 FACEMESH_TESSELATION
+       (얼굴 토폴로지)이 있어야 3D 얼굴 메쉬를 만들 수 있다. 이게 없으면 얼굴이 통째로 안 뜬다.
+       FaceMesh 인스턴스를 만들지 않으므로 무거운 WASM 은 받지 않는다. -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
   <script src="/static/face3d.js?v=3"></script>
   <style>
     :root {

@@ -95,5 +95,93 @@ console.log('\n--- 피격 리액션 (#4) ---');
   ck('0.5초 뒤 원자세로 복귀', Math.abs(h.rig.position.z) < 0.02 && Math.abs(h.rig.rotation.x) < 0.02);
 }
 
+console.log('');
+console.log('--- 3D 얼굴 배치: 두개골 구에 파묻히지 않는가 ---');
+{
+  // 실제로 겪은 버그: 얼굴 메쉬를 구(반지름 1.3) 안쪽 z=0.62 에 두어
+  // 얼굴 전체가 구에 파묻혀 host·1인칭 양쪽에서 아무것도 안 보였다.
+  // "모든 얼굴 정점이 두개골 타원체 바깥에 있다"를 수치로 확인한다.
+
+  // 얼굴 스텁 — face3d.js 의 createFace3D 반환 형태를 흉내낸다
+  function fakeFace(bounds, verts) {
+    const mesh = new THREE.Mesh(null, null);
+    mesh.geometry = { attributes: { position: { array: verts } } };
+    return {
+      mesh, bounds,
+      update() {}, hit() {}, setHp() {}, dispose() {},
+    };
+  }
+
+  // 사람 얼굴 비슷한 정점 분포 (폭 2.6 기준). **속이 채워진 곡면**이어야 한다 —
+  // 테두리만 있는 링으로 만들면 가운데(코·입 주변) 정점이 없어, 정작 가장 깊이 박히는
+  // 영역을 검사하지 못한다. 실제 얼굴은 중앙이 두개골에 가장 가깝다.
+  const verts = [];
+  const RING = 14, SPOKE = 16;
+  for (let r = 0; r <= RING; r++) {
+    const t = r / RING;                       // 0=중앙, 1=테두리
+    for (let k = 0; k < SPOKE; k++) {
+      const a = (k / SPOKE) * Math.PI * 2;
+      const rx = 1.28 * t * (0.62 + 0.38 * Math.abs(Math.cos(a)));
+      const ry = 1.55 * t;
+      // 중앙이 앞으로 튀어나온 곡면 (코 쪽이 +z, 가장자리는 뒤로 감김)
+      const z = 0.62 * Math.cos(t * Math.PI * 0.72) - 0.30;
+      verts.push(Math.cos(a) * rx, Math.sin(a) * ry, z);
+    }
+  }
+  verts.push(0, -0.10, 0.78);       // 코끝
+  const zs = [];
+  for (let i = 2; i < verts.length; i += 3) zs.push(verts[i]);
+  const bounds = { zMin: Math.min(...zs), zMax: Math.max(...zs),
+                   xMin: -1.2, xMax: 1.2, yMin: -1.5, yMax: 1.5 };
+
+  const h = window.createHumanoid(0xff3366);
+  h.setFace(fakeFace(bounds, verts));
+  h.update();
+
+  const faceZ = h.getFace().mesh.position.z;
+  const sx = h.head.scale.x, sy = h.head.scale.y, sz = h.head.scale.z;
+  const R = 1.3;
+
+  // 두개골 타원체: (x/(R*sx))^2 + (y/(R*sy))^2 + (z/(R*sz))^2 = 1
+  // 얼굴 정점을 머리 좌표계로 옮겨(z += faceZ) 전부 바깥(>1)인지 본다.
+  let inside = 0, worst = Infinity;
+  for (let i = 0; i < verts.length; i += 3) {
+    const x = verts[i], y = verts[i + 1], z = verts[i + 2] + faceZ;
+    const e = (x / (R * sx)) ** 2 + (y / (R * sy)) ** 2 + (z / (R * sz)) ** 2;
+    if (e < 1) inside++;
+    if (e < worst) worst = e;
+  }
+  console.log('       얼굴 z 배치 ' + faceZ.toFixed(2)
+            + ' · 두개골 스케일 (' + sx + ',' + sy + ',' + sz + ')'
+            + ' · 가장 깊이 박힌 정점 ' + worst.toFixed(2) + ' (1보다 커야 바깥)');
+  ck('모든 얼굴 정점이 두개골 바깥에 있다', inside === 0, inside + '개가 구 안에 박힘');
+  ck('얼굴이 두개골 앞쪽(+z)에 놓인다', faceZ > 0, faceZ.toFixed(2));
+  ck('두개골이 z로 납작하다 (뒤통수 역할)', sz < sx, 'z ' + sz + ' < x ' + sx);
+  ck('바이저는 얼굴과 겹치므로 숨긴다', h.visor.visible === false);
+  ck('두개골 구는 남는다 (떠 있는 가면 방지)', h.head.visible === true);
+
+  // 얼굴을 떼면 원래 머리로 복귀
+  h.setFace(null);
+  h.update();
+  ck('얼굴을 떼면 원래 머리로 복귀', h.head.scale.x === 1 && h.visor.visible === true);
+
+  // 깊이가 다른 얼굴(납작한 얼굴)도 파묻히지 않는가
+  const flatBounds = Object.assign({}, bounds, { zMin: -0.12, zMax: 0.18 });
+  const flatVerts = verts.slice();
+  for (let i = 2; i < flatVerts.length; i += 3) flatVerts[i] *= 0.25;
+  const h2 = window.createHumanoid(0x00e5ff);
+  h2.setFace(fakeFace(flatBounds, flatVerts));
+  h2.update();
+  const fz2 = h2.getFace().mesh.position.z;
+  let inside2 = 0;
+  for (let i = 0; i < flatVerts.length; i += 3) {
+    const x = flatVerts[i], y = flatVerts[i + 1], z = flatVerts[i + 2] + fz2;
+    if ((x / (R * h2.head.scale.x)) ** 2 + (y / (R * h2.head.scale.y)) ** 2
+      + (z / (R * h2.head.scale.z)) ** 2 < 1) inside2++;
+  }
+  ck('납작한 얼굴도 파묻히지 않는다 (배치가 바운딩에서 역산된다)', inside2 === 0,
+     inside2 + '개 박힘');
+}
+
 console.log(fail === 0 ? '\n>>> 전부 통과' : `\n>>> ${fail}개 실패`);
 process.exit(fail ? 1 : 0);

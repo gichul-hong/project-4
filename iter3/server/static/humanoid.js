@@ -55,6 +55,45 @@
   // 기술별 모션 길이(초) — 훅/어퍼는 궤적이 커서 조금 길게 잡아야 눈에 읽힌다.
   const PUNCH_DUR = { straight: 0.30, hook: 0.42, uppercut: 0.42, wave: 0.55 };
 
+  // 3D 얼굴을 씌울 때의 두개골 형상.
+  // z를 납작하게 눌러 "뒤통수"만 담당하게 하고, 그 앞을 얼굴이 덮는다.
+  const HEAD_R = 1.3;                                    // 구 머리 반지름
+  const SKULL_SCALE = { x: 0.90, y: 0.96, z: 0.58 };
+  const FACE_MARGIN = 0.04;   // 두개골 표면에서 얼굴을 이만큼 더 띄운다 (z-fighting 방지)
+
+  /**
+   * 얼굴 메쉬가 두개골 타원체에 **한 정점도 파묻히지 않는** 최소 전방 오프셋을 구한다.
+   *
+   * bounds.zMin 하나로 어림하면 얼굴 형태에 따라 뚫린다 —
+   * 가장 뒤쪽 정점이 반드시 가장 깊이 박히는 정점은 아니기 때문이다(옆으로 벌어진 뺨은
+   * 타원체가 좁아지는 자리라 오히려 여유가 있고, 가운데 낮은 정점이 더 위험하다).
+   * 정점마다 정확히 풀어서 최댓값을 취한다.
+   *
+   *   타원체 밖 조건: (x/a)^2 + (y/b)^2 + ((z+d)/c)^2 >= 1
+   *   k = 1 - (x/a)^2 - (y/b)^2  가 0 이하면 그 정점은 x·y 만으로 이미 바깥 → 제약 없음
+   *   그렇지 않으면  d >= c*sqrt(k) - z
+   */
+  function faceForwardOffset(face) {
+    const a = HEAD_R * SKULL_SCALE.x, b = HEAD_R * SKULL_SCALE.y, c = HEAD_R * SKULL_SCALE.z;
+    const attr = face.mesh && face.mesh.geometry && face.mesh.geometry.attributes
+              && face.mesh.geometry.attributes.position;
+    const pos = attr && attr.array;
+    if (!pos || !pos.length) {
+      const zMin = (face.bounds && face.bounds.zMin) || -0.4;
+      return c - zMin + FACE_MARGIN;      // 바운딩만 있을 때의 안전한 폴백
+    }
+    let d = -Infinity;
+    for (let i = 0; i < pos.length; i += 3) {
+      const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+      const k = 1 - (x / a) * (x / a) - (y / b) * (y / b);
+      if (k <= 0) continue;               // x·y 만으로 이미 타원체 바깥
+      const need = c * Math.sqrt(k) - z;
+      if (need > d) d = need;
+    }
+    if (d === -Infinity) d = 0;           // 모든 정점이 이미 바깥
+    return d + FACE_MARGIN;
+  }
+
   window.createHumanoid = function (hexColor, opts) {
     opts = opts || {};
     const color = (hexColor !== undefined && hexColor !== null) ? hexColor : 0xff3366;
@@ -252,11 +291,15 @@
       faceObj = face || null;
       if (faceObj && faceObj.mesh) {
         // Face Mesh 는 얼굴 **앞면만** 덮는다. 구 머리를 숨겨버리면 뒤통수가 없는
-        // "떠 있는 가면"이 된다. 구는 두개골로 남겨 두고 얼굴을 그 앞면에 얹는다.
-        faceObj.mesh.position.set(0, head.position.y, 0.62);
+        // "떠 있는 가면"이 되므로, 구는 두개골로 남기고 얼굴을 그 **앞면 바깥**에 얹는다.
+        //
+        // 배치를 상수로 박으면 안 된다. 얼굴 깊이는 사람마다 다르고, 조금만 뒤로 가면
+        // 얼굴 전체가 구 안에 파묻혀 **아무것도 안 보인다**(실제로 그렇게 됐었다).
+        // 얼굴의 가장 뒤쪽 점(bounds.zMin)이 두개골 표면보다 앞에 오도록 역산한다.
+        head.scale.set(SKULL_SCALE.x, SKULL_SCALE.y, SKULL_SCALE.z);
+        faceObj.mesh.position.set(0, head.position.y, faceForwardOffset(faceObj));
         rig.add(faceObj.mesh);
         head.visible = true;
-        head.scale.set(0.92, 0.98, 0.92);      // 얼굴이 살짝 튀어나오도록 살만 줄인다
         headMat.color.setHex(0x2a2f3e);        // 두개골은 어둡게 — 얼굴이 도드라진다
         headMat.emissive.setHex(0x000000);
         visor.visible = false;                 // 바이저는 얼굴과 겹친다

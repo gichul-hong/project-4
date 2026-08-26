@@ -11,7 +11,20 @@ class Obj3D {
 class Group extends Obj3D {}
 class Mesh extends Obj3D { constructor(g,m){ super(); this.geometry=g; this.material=m; } }
 function geo(){ return {}; }
-function mat(o){ return Object.assign(this||{}, { opacity:1, transparent:false }, o||{}); }
+// THREE.Color 흉내 — humanoid 가 setHex 로 두개골 색을 바꾼다
+class Color {
+  constructor(hex){ this.hex = hex || 0; }
+  setHex(h){ this.hex = h; return this; }
+  getHex(){ return this.hex; }
+}
+function mat(o){
+  const m = Object.assign(this||{}, { opacity:1, transparent:false }, o||{});
+  // color/emissive 는 숫자로 넘어오지만 실제 THREE 에서는 Color 객체다
+  m.color = new Color(typeof (o&&o.color) === 'number' ? o.color : 0xffffff);
+  m.emissive = new Color(typeof (o&&o.emissive) === 'number' ? o.emissive : 0x000000);
+  m.dispose = m.dispose || function(){};
+  return m;
+}
 global.THREE = {
   Group, Mesh, Vector3: V3,
   CylinderGeometry: geo, SphereGeometry: geo, BoxGeometry: geo,
