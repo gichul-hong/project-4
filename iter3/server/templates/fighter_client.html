@@ -11,6 +11,9 @@
   <script src="/static/effects.js?v=2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <!-- Face Mesh 는 "얼굴 등록" 캡처 순간에만 돌린다. 게임 중에는 Pose 만 돌아 FPS 영향이 없다. -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="/static/face3d.js?v=2"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -60,6 +63,23 @@
     .minimap canvas { display: block; border-radius: 4px; }
     .minimap-label { font-family: var(--mono); font-size: 9px; color: #7f8a9e; text-align: center; margin-top: 3px; letter-spacing: 1px; }
 
+    /* 얼굴 등록 오버레이 — 웹캠 패널을 덮는다 */
+    .face-cap { position: absolute; inset: 0; z-index: 25; display: none; flex-direction: column;
+      align-items: center; justify-content: center; background: rgba(5,8,14,0.72);
+      font-family: var(--mono); text-align: center; }
+    .face-cap.on { display: flex; }
+    .face-guide { width: 46%; aspect-ratio: 3/4; border: 3px dashed rgba(255,255,255,0.55);
+      border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,0.35); transition: border-color 0.2s; }
+    .face-guide.ok { border-color: #00ff66; border-style: solid; }
+    .face-cap h3 { margin-top: 14px; font-size: 15px; color: #fff; font-weight: 800; }
+    .face-cap p { margin-top: 6px; font-size: 11px; color: #9fb0c8; line-height: 1.6; }
+    .face-cap .count { font-size: 46px; font-weight: 900; color: var(--f-color); margin-top: 6px;
+      text-shadow: 0 0 18px currentColor; min-height: 52px; }
+    .face-btn { margin-top: 12px; padding: 7px 18px; border: none; border-radius: 5px; cursor: pointer;
+      background: var(--f-color); color: #04060a; font-weight: 800; font-size: 12px; font-family: var(--mono); }
+    .face-btn.ghost { background: rgba(255,255,255,0.12); color: #cfd8e6; margin-left: 6px; }
+    .badge.act { cursor: pointer; }
+
     .move-hud { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 4px 10px; font-family: var(--mono); font-size: 10px; color: #aaa; z-index: 5; white-space: pre-line; }
     footer { padding: 6px 16px; background: rgba(18,22,34,0.9); border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; font-size: 11px; color: #888; font-family: var(--mono); }
   </style>
@@ -69,6 +89,7 @@
     <div class="brand">{{ name }} ({{ client_id | upper }})</div>
     <div style="display: flex; gap: 8px;">
       <span class="badge" id="my-hp-badge" style="border-color:#00ff66; color:#00ff66;">HP: 100</span>
+      <span class="badge act" id="face-btn" title="웹캠으로 내 얼굴을 3D로 복원해 아바타 머리에 씌웁니다">📸 얼굴 등록</span>
       <span class="badge" id="fps-badge">-- FPS</span>
     </div>
   </header>
@@ -76,6 +97,16 @@
     <div class="panel cam-view">
       <video id="webcam" playsinline></video>
       <canvas id="cam-canvas"></canvas>
+      <div class="face-cap" id="face-cap">
+        <div class="face-guide" id="face-guide"></div>
+        <h3 id="face-title">얼굴을 원 안에 맞추고 정면을 보세요</h3>
+        <p id="face-desc">Face Mesh 468개 랜드마크로 3D 얼굴을 복원합니다.<br>안경·모자는 벗는 편이 정확합니다.</p>
+        <div class="count" id="face-count"></div>
+        <div>
+          <button class="face-btn" id="face-start">촬영 시작</button>
+          <button class="face-btn ghost" id="face-skip">나중에</button>
+        </div>
+      </div>
       <div class="action-hud">
         <div>Motion: <span class="act-title" id="action-text">IDLE</span></div>
         <div style="color:#00ff66">Speed: <b id="speed-text">0.0</b> km/h</div>
@@ -385,6 +416,25 @@
     cameraRig.position.set(playerX, 5, playerZ);
     cameraRig.rotation.y = rotationAngle;
 
+    // ========== 3D 복원 얼굴 적용 ==========
+    // 서버가 중계해 준 얼굴을 상대 아바타 머리에 씌운다.
+    // 텍스처 디코딩이 비동기라 Promise 로 받는다. 같은 얼굴을 두 번 만들지 않도록 캐시한다.
+    const faceApplied = {};   // { client_id: true }
+
+    function applyFaceTo(cid, blob) {
+      const mesh = opponentMeshes[cid];
+      const key = cid + '|' + ((blob && blob.tex) || '').length;
+      if (!mesh || !blob || faceApplied[key]) return;
+      faceApplied[key] = true;
+      const color = (worldConfigs[cid] || {}).color || 0xffffff;
+      window.createFace3DFromBlob(blob, color, 2.6).then(face => {
+        if (!face) return;
+        mesh.setFace(face);
+        face.setHp(oppHp[cid] !== undefined ? oppHp[cid] : 100);
+        console.log('[FACE] ' + cid + ' 3D 얼굴 적용 (' + face.triangleCount + ' 삼각형)');
+      });
+    }
+
     // ========== HP 바 ==========
     // HP 색은 3단계로 끊는다. 연속 그라디언트보다 "위험하다"가 한눈에 읽힌다.
     function renderHpBar(hp) {
@@ -508,6 +558,16 @@
         return;
       }
 
+      // 3D 복원 얼굴 — 접속 시 일괄(face_bulk), 이후 등록될 때마다(face_update)
+      if (data.type === "face_bulk") {
+        Object.keys(data.faces || {}).forEach(cid => applyFaceTo(cid, data.faces[cid]));
+        return;
+      }
+      if (data.type === "face_update") {
+        applyFaceTo(data.client_id, data.face);
+        return;
+      }
+
       // 내 HP & 충돌 보정
       if (data.fighters) {
         const me = data.fighters[clientId];
@@ -527,6 +587,9 @@
           if (!f) return;
           oppHp[id] = f.hp;
           opponentMeshes[id].setDown(f.hp <= 0);
+          // HP 가 떨어질수록 지친 표정 + 코피 (얼굴이 등록된 상대만)
+          const fc = opponentMeshes[id].getFace();
+          if (fc) fc.setHp(f.hp);
           // 위치도 서버 권한 상태에서 갱신 — 상대가 직접 패킷을 보내지 않아도 좌표가 최신이 된다
           if (f.world_x !== undefined && f.world_z !== undefined) {
             const t = opponentPositions[id] || (opponentPositions[id] = {});
@@ -1104,12 +1167,199 @@
       currentVelocity = lastSpeedKmh;
     });
 
+    // ========== 얼굴 등록 (Face Mesh 468 랜드마크 → 3D 복원) ==========
+    //
+    // Pose 와 Face Mesh 를 동시에 돌리면 FPS 가 30 아래로 떨어진다(과거 이력).
+    // 그래서 캡처 중에는 Pose 를 멈추고 Face Mesh 만 돌린 뒤, 끝나면 즉시 되돌린다.
+    // 복원된 메쉬는 정적이므로 게임 중 추가 비용은 0이다.
+    let captureMode = false;
+    let faceMesh = null, faceBusy = false;
+    let capState = null;
+    let myFaceBlob = null;
+    const capEls = {
+      box: document.getElementById('face-cap'),
+      guide: document.getElementById('face-guide'),
+      title: document.getElementById('face-title'),
+      desc: document.getElementById('face-desc'),
+      count: document.getElementById('face-count'),
+      start: document.getElementById('face-start'),
+      skip: document.getElementById('face-skip'),
+      btn: document.getElementById('face-btn'),
+    };
+
+    /** 랜드마크가 충분히 정면인가 — 코끝에서 좌우 광대까지 거리가 비슷해야 한다. */
+    function frontalScore(lm) {
+      const n = lm[1], L = lm[234], R = lm[454];
+      if (!n || !L || !R) return 0;
+      const dl = Math.hypot(n.x - L.x, n.y - L.y);
+      const dr = Math.hypot(n.x - R.x, n.y - R.y);
+      return 1 - Math.abs(dl - dr) / Math.max(dl + dr, 1e-4) * 2;   // 1=정면, 0=측면
+    }
+
+    /** 얼굴이 프레임에서 차지하는 범위 — 너무 작으면 텍스처가 뭉갠다. */
+    function faceSpan(lm) {
+      let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+      for (let i = 0; i < lm.length; i++) {
+        if (lm[i].x < x0) x0 = lm[i].x;
+        if (lm[i].x > x1) x1 = lm[i].x;
+        if (lm[i].y < y0) y0 = lm[i].y;
+        if (lm[i].y > y1) y1 = lm[i].y;
+      }
+      return { w: x1 - x0, h: y1 - y0, x0, y0, x1, y1 };
+    }
+
+    function ensureFaceMesh() {
+      if (faceMesh) return faceMesh;
+      faceMesh = new FaceMesh({ locateFile: f => 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,     // 홍채 468->478. 여기선 불필요하고 느리기만 하다
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
+      });
+      faceMesh.onResults(onFaceResults);
+      return faceMesh;
+    }
+
+    function onFaceResults(res) {
+      if (!captureMode || !capState) return;
+      const faces = res.multiFaceLandmarks;
+      const lm = faces && faces[0];
+      const okFace = !!lm;
+      const front = okFace ? frontalScore(lm) : 0;
+      const span = okFace ? faceSpan(lm) : null;
+      const bigEnough = span && span.w > 0.16;
+      const good = okFace && front > 0.72 && bigEnough;
+
+      capEls.guide.classList.toggle('ok', good);
+
+      if (!capState.armed) {
+        capEls.title.innerText = !okFace ? '얼굴이 보이지 않습니다'
+          : (!bigEnough ? '카메라에 조금 더 가까이'
+          : (front <= 0.72 ? '정면을 봐주세요' : '좋습니다 — 촬영 시작을 누르세요'));
+        return;
+      }
+
+      if (!good) {
+        capEls.title.innerText = !okFace ? '얼굴이 보이지 않습니다'
+          : (!bigEnough ? '조금 더 가까이' : '정면을 봐주세요');
+        return;
+      }
+
+      // 여러 프레임의 랜드마크를 평균낸다 — 한 프레임만 쓰면 추정 지터가 그대로 얼굴 굴곡이 된다
+      capState.frames.push(lm.map(q => ({ x: q.x, y: q.y, z: q.z })));
+      // 텍스처는 얼굴이 가장 크게 잡힌 프레임에서 딴다
+      if (!capState.best || span.w > capState.best.span.w) {
+        capState.best = { image: res.image, span: span };
+      }
+      const got = capState.frames.length, want = capState.want;
+      capEls.title.innerText = '촬영 중 — 그대로 계세요';
+      capEls.count.innerText = got + '/' + want;
+      if (got >= want) finishCapture();
+    }
+
+    function averageLandmarks(frames) {
+      const n = frames[0].length;
+      const out = new Array(n);
+      for (let i = 0; i < n; i++) {
+        let x = 0, y = 0, z = 0;
+        for (let f = 0; f < frames.length; f++) {
+          x += frames[f][i].x; y += frames[f][i].y; z += frames[f][i].z;
+        }
+        out[i] = { x: x / frames.length, y: y / frames.length, z: z / frames.length };
+      }
+      return out;
+    }
+
+    function finishCapture() {
+      const st = capState;
+      capState = null;
+      const lm = averageLandmarks(st.frames);
+      const img = st.best.image;
+      const IW = img.width || videoElement.videoWidth || 480;
+      const IH = img.height || videoElement.videoHeight || 360;
+
+      // 얼굴 주변만 잘라 텍스처로 쓴다 — 전체 프레임을 쓰면 해상도의 2/3 를 배경에 버린다
+      const sp = st.best.span;
+      const mx = sp.w * 0.22, my = sp.h * 0.18;
+      const cx0 = Math.max(0, (sp.x0 - mx) * IW);
+      const cy0 = Math.max(0, (sp.y0 - my) * IH);
+      const cw = Math.min(IW - cx0, (sp.w + mx * 2) * IW);
+      const ch = Math.min(IH - cy0, (sp.h + my * 2) * IH);
+
+      const tc = document.createElement('canvas');
+      tc.width = 512; tc.height = 512;
+      tc.getContext('2d').drawImage(img, cx0, cy0, cw, ch, 0, 0, 512, 512);
+
+      const blob = window.serializeFace(lm, tc, {
+        aspect: IW / IH,
+        crop: { x0: cx0, y0: cy0, w: cw, h: ch },
+        imageW: IW, imageH: IH,
+      }, 0.75);
+
+      stopCapture();
+      capEls.title.innerText = '복원 완료 — 아바타에 적용했습니다';
+      capEls.count.innerText = '';
+      capEls.desc.innerHTML = '랜드마크 468개 · 텍스처 ' + Math.round(blob.tex.length / 1024)
+        + 'KB<br>다른 파이터 화면에도 이 얼굴로 보입니다.';
+      capEls.start.innerText = '다시 촬영';
+      capEls.skip.innerText = '닫기';
+
+      // 서버로 보내 모두에게 중계
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'face', face: blob }));
+      }
+      myFaceBlob = blob;
+      setTimeout(function () { if (!captureMode) capEls.box.classList.remove('on'); }, 2000);
+    }
+
+    function startCapture() {
+      capState = { frames: [], want: 12, best: null, armed: false };
+      capEls.box.classList.add('on');
+      capEls.count.innerText = '';
+      capEls.title.innerText = '얼굴을 원 안에 맞추세요';
+      capEls.start.innerText = '촬영 시작';
+      captureMode = true;
+      ensureFaceMesh();
+    }
+
+    function armCapture() {
+      if (!capState) capState = { frames: [], want: 12, best: null, armed: false };
+      capState.frames = []; capState.best = null; capState.armed = true;
+      capEls.count.innerText = '0/12';
+    }
+
+    function stopCapture() {
+      captureMode = false;
+      capState = null;
+      capEls.guide.classList.remove('ok');
+    }
+
+    capEls.btn.addEventListener('click', function () {
+      if (captureMode) { stopCapture(); capEls.box.classList.remove('on'); }
+      else startCapture();
+    });
+    capEls.start.addEventListener('click', armCapture);
+    capEls.skip.addEventListener('click', function () {
+      stopCapture(); capEls.box.classList.remove('on');
+    });
+
     // Camera
     let poseBusy = false, lastSendT = 0;
     const cameraUtils = new Camera(videoElement, {
       onFrame: async () => {
         if (!videoElement || videoElement.readyState < 2) return;
         const now = performance.now();
+
+        // 얼굴 등록 중에는 Face Mesh 만 — 두 모델을 같이 돌리면 FPS 가 무너진다
+        if (captureMode) {
+          if (faceBusy || !faceMesh) return;
+          faceBusy = true;
+          try { await faceMesh.send({ image: videoElement }); } catch (e) {}
+          finally { faceBusy = false; }
+          return;
+        }
+
         if (poseBusy) return;
         if (now - lastSendT < 30) return; // 최대 ~33fps — 실제 주기는 모델 속도에 맞춰 자동 조절
         poseBusy = true; lastSendT = now;

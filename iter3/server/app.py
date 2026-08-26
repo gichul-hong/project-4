@@ -32,6 +32,9 @@ class ArenaGameManager:
         self._collision_interval: float = 0.05  # 50ms 간격으로 충돌 체크 (초당 20회)
         self._last_positions: Dict[str, tuple] = {}  # 마지막 broadcast한 위치 캐시
         self._last_state_sync: float = 0.0           # fighters 전체 상태를 마지막으로 실은 시각
+        # 3D 복원 얼굴 { client_id: {"lm": [...], "tex": "data:image/jpeg;base64,..."} }
+        # 접속이 끊겨도 유지한다 — 재접속할 때마다 다시 촬영하게 만들 이유가 없다.
+        self.faces: Dict[str, dict] = {}
         self.reset_game()
 
     def reset_game(self):
@@ -120,6 +123,18 @@ class ArenaGameManager:
         if client_id in self.fighters:
             self.fighters[client_id]["hp"] = 100 # 접속 시 HP 100 초기화!
         print(f"[+] Fighter connected: {client_id}")
+
+        # 이미 등록된 얼굴들을 새로 들어온 쪽에 몰아서 보낸다.
+        # 그러지 않으면 나중에 들어온 사람은 남들 얼굴을 영영 못 본다.
+        if self.faces:
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "face_bulk",
+                    "faces": self.faces,
+                }))
+            except Exception:
+                pass
+
         await self.broadcast({
             "type": "game_state",
             "event": "fighter_joined",
@@ -302,6 +317,22 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
+
+            # 3D 복원 얼굴 등록 — 캡처 시 1회만 온다 (수십 KB라 매 프레임 오는 패킷이 아니다)
+            if payload.get("type") == "face":
+                face = payload.get("face")
+                if isinstance(face, dict) and face.get("lm") and face.get("tex"):
+                    manager.faces[client_id] = face
+                    print(f"[FACE] {client_id} 얼굴 등록 "
+                          f"(랜드마크 {len(face['lm']) // 3}개, 텍스처 {len(face['tex']) // 1024}KB)",
+                          flush=True)
+                    await manager.broadcast({
+                        "type": "face_update",
+                        "client_id": client_id,
+                        "face": face,
+                    })
+                continue
+
             action = payload.get("action", "IDLE")
             velocity = payload.get("velocity", 0.0)
 

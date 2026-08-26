@@ -14,6 +14,7 @@
  *
  *   h.hit(damage)   // 피격 리액션 (움찔 + 뒤로 밀림)
  *   h.setDown(true) // K.O. — 뒤로 넘어지며 사라짐 (false면 다시 일어남)
+ *   h.setFace(face) // 3D 복원 얼굴을 머리로 사용 (face3d.js 의 createFace3D 결과)
  *
  * 노출 API (기존 코드 호환):
  *   .group, .head, .body(몸통), .leftGlove, .rightGlove, .shield
@@ -235,8 +236,34 @@
       }
     }
 
+    /**
+     * 3D 복원 얼굴을 머리에 붙인다 (face3d.js).
+     * 단색 구 머리는 숨기고, 얼굴 메쉬를 같은 자리에 놓는다.
+     * face 를 null 로 주면 원래 구 머리로 되돌아간다.
+     */
+    let faceObj = null;
+    function setFace(face) {
+      if (faceObj && faceObj.mesh && faceObj.mesh.parent) rig.remove(faceObj.mesh);
+      faceObj = face || null;
+      if (faceObj && faceObj.mesh) {
+        // 구 머리(반지름 1.3)와 같은 자리·크기. 바이저는 얼굴과 겹치므로 같이 숨긴다.
+        faceObj.mesh.position.set(0, head.position.y, 0.35);
+        rig.add(faceObj.mesh);
+        head.visible = false;
+        visor.visible = false;
+      } else {
+        head.visible = true;
+        visor.visible = true;
+      }
+    }
+
     /** 피격 리액션 — 데미지가 클수록 크게 움찔한다. */
     function hit(damage) {
+      if (faceObj) {
+        // 어느 쪽을 맞았는지는 알 수 없으므로 번갈아 — 같은 자리만 계속 눌리면 부자연스럽다
+        const sides = ['left', 'right', 'center', 'chin'];
+        faceObj.hit(damage, sides[(S.hitCount = (S.hitCount || 0) + 1) % sides.length]);
+      }
       S.flinch = 1;
       S.flinchMag = Math.min(1.4, 0.45 + (damage || 5) / 12);
     }
@@ -342,6 +369,13 @@
       rig.position.y = lift + fl * 0.15;
       head.rotation.x = -fl * 0.55;
 
+      // 3D 얼굴 — 호흡/피격/표정 갱신은 얼굴 모듈이 스스로 한다
+      if (faceObj) {
+        faceObj.update(dt);
+        faceObj.mesh.position.y = head.position.y;
+        faceObj.mesh.visible = group.visible;
+      }
+
       // 호흡/바운스
       const breathe = Math.sin(now * 0.004) * 0.06;
       torso.position.y = 3.1 + breathe;
@@ -376,7 +410,8 @@
     return {
       group, rig, head, body: torso, leftGlove: armL.glove, rightGlove: armR.glove, shield,
       armL, armR, legL, legR, visor,
-      setAction, update, hit, setDown,
+      setAction, update, hit, setDown, setFace,
+      getFace: () => faceObj,
       isDown: () => S.down,
       state: S
     };

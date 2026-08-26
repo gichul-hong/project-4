@@ -10,6 +10,7 @@
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
   <script src="/static/humanoid.js?v=4"></script>
   <script src="/static/effects.js?v=2"></script>
+  <script src="/static/face3d.js?v=2"></script>
   <style>
     :root {
       --bg: #07080d;
@@ -317,6 +318,21 @@
 
     const fighterMeshes = {}; // { client_id: humanoid }
     const fx = window.createHitEffects(scene);   // 타격/K.O. 이펙트
+
+    // 3D 복원 얼굴 — 파이터가 등록하면 서버가 중계해 준다
+    const faceApplied = {};
+    function applyFaceTo(cid, blob) {
+      const mesh = fighterMeshes[cid];
+      const key = cid + '|' + ((blob && blob.tex) || '').length;
+      if (!mesh || !blob || faceApplied[key]) return;
+      faceApplied[key] = true;
+      window.createFace3DFromBlob(blob, fighterConfigs[cid].color, 2.6).then(face => {
+        if (!face) return;
+        mesh.setFace(face);
+        addCombatLog('<b style="color:#0ff">' + fighterConfigs[cid].name + ' 3D 얼굴 등록 ('
+                     + face.triangleCount + ' 삼각형)</b>');
+      });
+    }
     const koState = {};                          // { client_id: true } — 이미 K.O. 연출을 재생했는지
 
     Object.keys(fighterConfigs).forEach(cid => {
@@ -521,6 +537,16 @@
         return;
       }
 
+      // 3D 복원 얼굴
+      if (data.type === "face_bulk") {
+        Object.keys(data.faces || {}).forEach(cid => applyFaceTo(cid, data.faces[cid]));
+        return;
+      }
+      if (data.type === "face_update") {
+        applyFaceTo(data.client_id, data.face);
+        return;
+      }
+
       // 1. 파이터 HP, 위치 & 액션 UI 갱신 (서버 상태 동기화)
       if (data.fighters) {
         let aliveCount = 0;
@@ -540,6 +566,9 @@
           const koMesh = fighterMeshes[cid];
           const isKO = f.hp <= 0;
           if (koMesh) koMesh.setDown(isKO);
+          // HP 가 떨어질수록 지친 표정 + 코피
+          const kf = koMesh && koMesh.getFace();
+          if (kf) kf.setHp(f.hp);
           const card = document.getElementById(`card-${cid}`);
           if (card) card.classList.toggle('ko', isKO);
           // K.O. 연출은 쓰러지는 순간 한 번만 재생 (매 패킷 재생 방지)

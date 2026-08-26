@@ -140,6 +140,7 @@ pitch   = dirCore + conf·( 1.20·(어깨폭 증가율)           ← 부호가 
 | 분야 | 상태 | 프로젝트 대응 |
 | :--- | :---: | :--- |
 | 04 사람 자세·3D 모션 | ✅ / ⚠️ | MediaPipe **Pose 상체 7노드** 실시간 + BiLSTM 학습 완료(런타임 미연동) |
+| 04 얼굴 랜드마크·단안 3D 복원 | ✅ | **Face Mesh 468 랜드마크 → 3D 얼굴 메쉬(854 삼각형) 실시간 복원** + 피격 변형 |
 | 05 깊이·카메라·3D | ✅ | `poseWorldLandmarks` 미터 단위 3D로 펀치 운동학 계산 |
 | 08 이미지 복원·화질 개선 | ✅ (경량) | CSS 필터 + Canvas `shadowBlur` 엣지 강조 |
 | 03 픽셀 분할 | ❌ | 계획됨 (TODO #6 SelfieSegmentation) |
@@ -220,6 +221,16 @@ python iter2\run_arena_server.py
 > 짧아 **잠금이 한 번도 풀리지 않아 웹캠 이동이 아예 불가능**했습니다 (8차 피드백, `DEVLOG.md` 참조).
 > 키보드 `↑`는 잠금과 무관하게 항상 동작합니다.
 
+**📸 얼굴 등록 (3D 복원)**
+- 헤더의 **📸 얼굴 등록** 버튼 → 가이드 원에 얼굴을 맞추고 **촬영 시작**.
+  정면 여부와 얼굴 크기를 실시간으로 검사하므로, 조건이 맞을 때만 12프레임을 모읍니다.
+- MediaPipe **Face Mesh 468개 랜드마크**로 그 자리에서 3D 얼굴 메쉬(854 삼각형)를 복원해
+  아바타 머리에 씌웁니다. 다른 파이터·host 화면에도 같은 얼굴로 보입니다.
+- **맞으면 그 자리가 눌리고 멍이 누적**되며, **HP가 낮아지면 코피가 나고 지친 표정**으로 바뀝니다
+  (눈썹 처짐 · 눈 반쯤 감김 · 입 벌어짐 · 부기).
+- Face Mesh 는 **촬영 순간에만** 돌고 즉시 꺼집니다. 게임 중에는 Pose 만 돌아 FPS 영향이 없습니다.
+- 안경·모자는 벗는 편이 정확합니다. 얼굴 데이터는 서버 메모리에만 있고 디스크에 저장되지 않습니다.
+
 **🖥️ 1인칭 화면 구성**
 - **좌상단 HP 바** — 내 체력. 50/25 기준으로 초록→노랑→빨강, 25 이하면 맥박이 뜁니다.
   **HP가 0이면 이동이 정지**하고 K.O. 오버레이가 덮입니다 (고장이 아니라 사망 상태입니다).
@@ -273,11 +284,14 @@ iter2/
 - [`tests/`](./tests/) — 헤드리스 검증 하니스 6종 (84개 항목)
   ```
   cd iter3/tests
-  node pose_harness.js && node effects_harness.js && node aim_harness.js && node move_harness.js
+  node pose_harness.js && node effects_harness.js && node aim_harness.js
+  node move_harness.js && node face_harness.js
   node page_harness.js && node match_harness.js      # 서버가 떠 있어야 함
   ```
-  앞 4종은 THREE 최소 스텁 위에서 로직만 보고, 뒤 2종은 **헤드리스 Chrome/Edge 로 페이지를 실제로 띄워**
+  앞 5종은 THREE 최소 스텁 위에서 로직만 보고, 뒤 2종은 **헤드리스 Chrome/Edge 로 페이지를 실제로 띄워**
   런타임 예외·렌더 여부·경기 규칙을 확인한다 (npm 설치 불필요 — Node 22 내장 fetch/WebSocket 사용).
+  두 계층이 다 필요하다 — 1인칭 화면이 통째로 검게 나온 `fx` 이름 충돌과, 얼굴 삼각형이 4배로
+  중복되던 버그는 **로직 하니스가 전부 통과시키고 브라우저 쪽에서만 드러났다.**
 - [`TODO.md`](./TODO.md) — CV/AI 기능 개선 로드맵 (7개 항목, 우선순위 순)
 - [`DEVLOG.md`](./DEVLOG.md) — 일자별 변경 이력
 - [`CV_TECHNIQUES.md`](./CV_TECHNIQUES.md) — 레퍼런스 8개 분야 대비 매핑 · 발표용 자료
