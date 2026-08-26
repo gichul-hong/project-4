@@ -2,15 +2,16 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>🥊 Boxing Evaluation Dashboard — Video · 3D Replay · Accuracy</title>
+  <title>🥊 Boxing Evaluation Dashboard — Video · 3D Arena · Accuracy</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥊</text></svg>">
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="/static/punch_core.js?v=3"></script>
   <script src="/static/effects.js?v=2"></script>
+  <script src="/static/humanoid.js?v=6"></script>
   <style>
     :root {
-      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --bg: #090d16; --card: #121824; --border: #283347;
       --cyan: #00E5FF; --pink: #FF3366; --green: #3fb950; --gold: #d29922;
       --text: #e6edf3; --muted: #8b949e;
       --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
@@ -26,7 +27,7 @@
     header {
       background: var(--card); border-bottom: 1px solid var(--border);
       padding: 6px 16px; display: flex; align-items: center; justify-content: space-between;
-      height: 44px; flex-shrink: 0;
+      height: 46px; flex-shrink: 0;
     }
     .title-group { display: flex; align-items: center; gap: 8px; }
     .title-group h1 { font-size: 0.95rem; font-weight: 700; color: var(--cyan); }
@@ -39,15 +40,24 @@
     #main { display: flex; flex: 1; overflow: hidden; }
     .pane { position: relative; background: #05080f; overflow: hidden; }
     .pane-video { flex: 3; border-right: 2px solid var(--border); }
-    .pane-3d    { flex: 3; border-right: 2px solid var(--border); }
-    .pane-stats { flex: 2.5; display: flex; flex-direction: column; background: var(--card); overflow-y: auto; }
+    .pane-3d    { flex: 3.2; border-right: 2px solid var(--border); }
+    .pane-stats { flex: 2.3; display: flex; flex-direction: column; background: var(--card); overflow-y: auto; }
 
     .pane-label {
       position: absolute; top: 8px; left: 8px; z-index: 10;
-      background: rgba(22,27,34,0.88); backdrop-filter: blur(4px);
-      padding: 3px 10px; border-radius: 5px; border: 1px solid var(--border);
+      background: rgba(18,24,36,0.90); backdrop-filter: blur(4px);
+      padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border);
       font-size: 0.72rem; font-weight: 600; color: #c9d1d9;
     }
+    .cam-toggle-bar {
+      position: absolute; top: 8px; right: 8px; z-index: 10;
+      display: flex; gap: 4px;
+    }
+    .cam-btn {
+      background: rgba(18,24,36,0.85); border: 1px solid var(--border);
+      color: var(--muted); padding: 3px 8px; border-radius: 4px; font-size: 0.68rem; cursor: pointer;
+    }
+    .cam-btn.active { background: var(--cyan); color: #000; font-weight: bold; }
 
     .video-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; }
     #video-el { width: 100%; height: 100%; object-fit: contain; }
@@ -59,21 +69,21 @@
     .stats-section h3 { font-size: 0.82rem; color: var(--cyan); margin-bottom: 6px; font-weight: 700; }
     .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .metric-card {
-      background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; text-align: center;
+      background: #090d16; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; text-align: center;
     }
-    .metric-card .val { font-size: 1.4rem; font-weight: 800; font-family: var(--mono); }
+    .metric-card .val { font-size: 1.35rem; font-weight: 800; font-family: var(--mono); }
     .metric-card .label { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
 
-    .type-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; font-family: var(--mono); border-bottom: 1px solid #1b2333; }
+    .type-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; font-family: var(--mono); border-bottom: 1px solid #1a2030; }
     .type-row:last-child { border: none; }
     .type-name { color: var(--cyan); font-weight: 600; }
 
     /* === Timeline Log === */
-    #event-log { max-height: 200px; overflow-y: auto; font-size: 0.72rem; font-family: var(--mono); }
-    .log-entry { padding: 2px 0; display: flex; gap: 8px; border-bottom: 1px solid #1a2030; }
-    .log-entry:hover { background: rgba(0,229,255,0.05); }
-    .log-t { color: var(--gold); min-width: 52px; }
-    .log-action { color: var(--pink); font-weight: 700; min-width: 120px; }
+    #event-log { max-height: 220px; overflow-y: auto; font-size: 0.72rem; font-family: var(--mono); }
+    .log-entry { padding: 3px 0; display: flex; gap: 8px; border-bottom: 1px solid #1a2030; cursor: pointer; }
+    .log-entry:hover { background: rgba(0,229,255,0.08); }
+    .log-t { color: var(--gold); min-width: 50px; }
+    .log-action { color: var(--pink); font-weight: 700; min-width: 110px; }
     .log-speed { color: var(--green); }
     .log-conf { color: var(--muted); }
     .log-entry.suspect { background: rgba(255,51,102,0.08); }
@@ -100,9 +110,8 @@
     .slider-box { flex: 1; display: flex; align-items: center; gap: 8px; }
     input[type=range] { flex: 1; accent-color: var(--cyan); height: 5px; }
     .time-lbl { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); min-width: 48px; }
-    select { background: #1b2333; color: var(--text); border: 1px solid var(--border); padding: 5px 8px; border-radius: 5px; font-size: 0.76rem; }
+    select { background: #1b2333; color: var(--text); border: 1px solid var(--border); padding: 4px 8px; border-radius: 5px; font-size: 0.76rem; }
 
-    /* progress marker on seek bar */
     .marker-strip { position: relative; flex: 1; height: 20px; }
     .marker-strip input[type=range] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; }
     #markers-cv { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
@@ -113,7 +122,7 @@
 <header>
   <div class="title-group">
     <h1>🥊 Boxing Evaluation Dashboard</h1>
-    <span class="badge">MULTI-VERSION BENCHMARK</span>
+    <span class="badge">ARENA 3D · VIDEO · ACCURACY</span>
   </div>
   <div class="hud-bar">
     <div class="hud-item" style="display:flex;align-items:center;gap:6px;">
@@ -122,7 +131,7 @@
         <option value="latest">최신 결과 (Latest)</option>
       </select>
     </div>
-    <div class="hud-item">NOW: <span id="hud-now" style="color:var(--cyan)">IDLE</span></div>
+    <div class="hud-item">ACTION: <span id="hud-now" style="color:var(--cyan)">IDLE</span></div>
     <div class="hud-item">FPS: <span id="hud-fps" style="color:var(--green)">--</span></div>
     <div class="hud-item">DATA: <span id="hud-data" style="color:var(--gold)">로딩 중...</span></div>
   </div>
@@ -131,7 +140,7 @@
 <div id="main">
   <!-- 1) 원본 영상 + 스켈레톤 -->
   <div class="pane pane-video">
-    <div class="pane-label">📹 원본 녹화 영상</div>
+    <div class="pane-label">📹 원본 녹화 영상 & 관절 추적</div>
     <div class="video-wrap">
       <video id="video-el" src="/eval_video/benchmark.mp4" playsinline muted crossorigin="anonymous"></video>
       <canvas id="skel-cv"></canvas>
@@ -139,9 +148,13 @@
     <div id="action-pop">LEFT_JAB</div>
   </div>
 
-  <!-- 2) 3D 아바타 리플레이 -->
+  <!-- 2) 실제 Arena 3D 복싱 링 & 정품 휴머노이드 복서 아바타 -->
   <div class="pane pane-3d">
-    <div class="pane-label">🥊 3D 복서 아바타 IK 미러링</div>
+    <div class="pane-label">🏟️ 3D Arena Ring View (정품 복서 아바타)</div>
+    <div class="cam-toggle-bar">
+      <button class="cam-btn active" id="btn-view-fighter">🥊 복서 시점</button>
+      <button class="cam-btn" id="btn-view-ring">🏟️ 링 전체</button>
+    </div>
     <div id="three-box"></div>
   </div>
 
@@ -168,7 +181,7 @@
     </div>
 
     <div class="stats-section" style="flex:1;">
-      <h3>📜 이벤트 타임라인 (클릭 시 해당 시점으로 이동)</h3>
+      <h3>📜 이벤트 타임라인 (클릭 시 점프)</h3>
       <div id="event-log"></div>
     </div>
   </div>
@@ -208,8 +221,11 @@ const btnPlay = document.getElementById('btn-play');
 const seek = document.getElementById('seek');
 const tCur = document.getElementById('t-cur');
 const tDur = document.getElementById('t-dur');
+const verSel = document.getElementById('ver-sel');
+const btnViewFighter = document.getElementById('btn-view-fighter');
+const btnViewRing = document.getElementById('btn-view-ring');
 
-// ==================== Protocol phases (record_webcam.py SCHEDULE 기반) ====================
+// ==================== Protocol phases ====================
 const PROTOCOL = [
   { t0:  0, t1:  6, label: "준비 & 캘리브레이션", expect: 0, types: [] },
   { t0:  6, t1: 18, label: "직선 펀치 (잽4+크로스4)", expect: 8, types: ["LEFT_JAB","RIGHT_CROSS"] },
@@ -224,14 +240,28 @@ const PROTOCOL = [
   { t0: 85, t1: 90, label: "마무리 (펀치 없어야 함)", expect: 0, types: [] },
 ];
 
-// ==================== Three.js Setup ====================
+// ==================== 1. Three.js Arena Scene Setup ====================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x060911);
-scene.fog = new THREE.FogExp2(0x060911, 0.025);
+scene.background = new THREE.Color(0x07080d);
+scene.fog = new THREE.FogExp2(0x07080d, 0.015);
 
-let tw = threeBox.clientWidth || 400, th = threeBox.clientHeight || 400;
-const cam3 = new THREE.PerspectiveCamera(45, tw / th, 0.1, 100);
-cam3.position.set(0, 2.8, 6.2);
+let tw = threeBox.clientWidth || 450, th = threeBox.clientHeight || 400;
+const cam3 = new THREE.PerspectiveCamera(45, tw / th, 0.1, 200);
+
+// 기본 파이터 시점 카메라
+function setCameraFighter() {
+  cam3.position.set(0, 4.5, 9.5);
+  orb.target.set(0, 2.8, 0);
+  btnViewFighter.classList.add('active');
+  btnViewRing.classList.remove('active');
+}
+// 링 전체 관제 뷰 카메라
+function setCameraRing() {
+  cam3.position.set(0, 18, 28);
+  orb.target.set(0, 2.5, 0);
+  btnViewRing.classList.add('active');
+  btnViewFighter.classList.remove('active');
+}
 
 const ren = new THREE.WebGLRenderer({ antialias: true });
 ren.setSize(tw, th);
@@ -240,58 +270,92 @@ ren.shadowMap.enabled = true;
 threeBox.appendChild(ren.domElement);
 
 const orb = new THREE.OrbitControls(cam3, ren.domElement);
-orb.target.set(0, 1.4, 0);
 orb.enableDamping = true;
+orb.dampingFactor = 0.08;
+setCameraFighter();
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(5, 12, 6); scene.add(dl);
-scene.add(new THREE.PointLight(0x00E5FF, 1.8, 15).translateTo?.(0,3,2) || (() => { const p = new THREE.PointLight(0x00E5FF, 1.8, 15); p.position.set(0,3,2); scene.add(p); return p; })());
+btnViewFighter.addEventListener('click', setCameraFighter);
+btnViewRing.addEventListener('click', setCameraRing);
 
-const flr = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0x0f1522, roughness: 0.4 }));
-flr.rotation.x = -Math.PI / 2; flr.receiveShadow = true; scene.add(flr);
-const grd = new THREE.GridHelper(14, 14, 0x00E5FF, 0x1b2538); grd.position.y = 0.01; scene.add(grd);
+// 조명 (아레나 스포트라이트)
+scene.add(new THREE.AmbientLight(0x334466, 0.9));
+const spotLight = new THREE.SpotLight(0xffffff, 2.2);
+spotLight.position.set(0, 25, 0);
+spotLight.angle = Math.PI / 3;
+spotLight.castShadow = true;
+scene.add(spotLight);
 
-[[-5,-5],[5,-5],[-5,5],[5,5]].forEach(([x,z]) => {
-  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3, 16), new THREE.MeshStandardMaterial({ color: 0xFF3366, metalness: 0.7 }));
-  p.position.set(x, 1.5, z); scene.add(p);
+const neonLightL = new THREE.PointLight(0xff3366, 1.8, 25);
+neonLightL.position.set(-8, 6, 0);
+scene.add(neonLightL);
+
+const neonLightR = new THREE.PointLight(0x00e5ff, 1.8, 25);
+neonLightR.position.set(8, 6, 0);
+scene.add(neonLightR);
+
+// 사이버펑크 복싱 링 바닥 (Neon Ring Mat)
+const ringMatGeo = new THREE.BoxGeometry(24, 1.5, 24);
+const ringMatMat = new THREE.MeshStandardMaterial({ color: 0x101420, roughness: 0.5, metalness: 0.2 });
+const ringMatMesh = new THREE.Mesh(ringMatGeo, ringMatMat);
+ringMatMesh.position.y = -0.75;
+scene.add(ringMatMesh);
+
+const ringGrid = new THREE.GridHelper(24, 24, 0x00E5FF, 0x1f2a3f);
+ringGrid.position.y = 0.01;
+scene.add(ringGrid);
+
+// 링 로프 기둥 4개 (Corner Poles & Ropes)
+const cornerPositions = [[-10, -10], [10, -10], [-10, 10], [10, 10]];
+cornerPositions.forEach(([px, pz]) => {
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.25, 7.0, 16),
+    new THREE.MeshStandardMaterial({ color: 0xff3366, metalness: 0.8, roughness: 0.2 })
+  );
+  pole.position.set(px, 3.5, pz);
+  scene.add(pole);
 });
 
+// 네온 로프 3단
+[2.0, 3.5, 5.0].forEach(ropeY => {
+  const ropeGeo = new THREE.BufferGeometry();
+  const pts = [
+    new THREE.Vector3(-10, ropeY, -10),
+    new THREE.Vector3( 10, ropeY, -10),
+    new THREE.Vector3( 10, ropeY,  10),
+    new THREE.Vector3(-10, ropeY,  10),
+    new THREE.Vector3(-10, ropeY, -10)
+  ];
+  ropeGeo.setFromPoints(pts);
+  const ropeMat = new THREE.LineBasicMaterial({ color: 0x00e5ff, linewidth: 2 });
+  scene.add(new THREE.Line(ropeGeo, ropeMat));
+});
+
+// 타격 이펙트 매니저
 const hitFx = window.createHitEffects ? window.createHitEffects(scene) : null;
 
-// 3D Avatar
-const av = new THREE.Group(); scene.add(av);
-const mB = new THREE.MeshStandardMaterial({ color: 0x1a2333 });
-const mC = new THREE.MeshStandardMaterial({ color: 0x00E5FF, roughness: 0.3 });
-const mGL = new THREE.MeshStandardMaterial({ color: 0x00E5FF, emissive: 0x00E5FF, emissiveIntensity: 0.45 });
-const mGR = new THREE.MeshStandardMaterial({ color: 0xFF3366, emissive: 0xFF3366, emissiveIntensity: 0.45 });
-const mJ = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+// ==================== 2. 실제 Arena 정품 3D 복서 아바타 생성 ====================
+let myFighter = null;    // Red Boxer (플레이어)
+let dummyOpponent = null; // Cyan Boxer (상대방 타겟)
 
-const head3 = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 16), mC); head3.position.set(0,1.9,0); av.add(head3);
-const torso3 = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.30, 0.85, 12), mB); torso3.position.set(0,1.25,0); av.add(torso3);
-const shL = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), mJ); av.add(shL);
-const shR = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), mJ); av.add(shR);
-const elL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), mJ); av.add(elL);
-const elR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), mJ); av.add(elR);
-const gL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mGL); av.add(gL);
-const gR = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mGR); av.add(gR);
+if (typeof window.createHumanoid === 'function') {
+  // 1) 내 복서 (Red Boxer - 정면 마주보기)
+  myFighter = window.createHumanoid(0xff3366);
+  myFighter.group.position.set(0, 0, 1.2);
+  myFighter.group.rotation.y = Math.PI; // 정면 마주보기
+  scene.add(myFighter.group);
 
-function mkBone(m) { const g = new THREE.CylinderGeometry(0.08, 0.08, 1, 10); g.translate(0, 0.5, 0); g.rotateX(Math.PI / 2); return new THREE.Mesh(g, m); }
-const buL = mkBone(mB), bfL = mkBone(mC), buR = mkBone(mB), bfR = mkBone(mC);
-av.add(buL, bfL, buR, bfR);
-const lL = mkBone(mB), lR = mkBone(mB); av.add(lL, lR);
+  // 2) 상대방 복서 (Cyan Boxer 더미)
+  dummyOpponent = window.createHumanoid(0x00e5ff);
+  dummyOpponent.group.position.set(0, 0, -3.8);
+  dummyOpponent.group.rotation.y = 0; // 나를 마주봄
+  scene.add(dummyOpponent.group);
+  console.log("✅ Arena Humanoid Boxers Loaded Successfully!");
+}
 
-function layB(m, a, b) { if (!a || !b || isNaN(a.x) || isNaN(b.x)) return; m.position.copy(a); const d = a.distanceTo(b); if (d > 0.001) { m.lookAt(b); m.scale.set(1, 1, d); } }
-layB(lL, new THREE.Vector3(-0.25,0.85,0), new THREE.Vector3(-0.35,0,0.1));
-layB(lR, new THREE.Vector3(0.25,0.85,0), new THREE.Vector3(0.35,0,-0.1));
-
-// ==================== PunchCore ====================
-const pc = window.PunchCore ? window.PunchCore.createPunchCore() : null;
-const SKEL = [[0,11],[0,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
-
-// ==================== Data Loading & Version Switching ====================
+// ==================== 3. 랜드마크 & 펀치 데이터 로드 ====================
 let frames = [], punchEvents = [];
 let lastPopT = 0;
-const verSel = document.getElementById('ver-sel');
+const SKEL = [[0,11],[0,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
 
 async function loadVersions() {
   try {
@@ -310,7 +374,6 @@ async function loadAll(selectedVersion = null) {
   hudData.innerText = "데이터 로딩 중...";
   hudData.style.color = 'var(--gold)';
 
-  // 1) Landmarks (only load once)
   if (frames.length === 0) {
     try {
       const r1 = await fetch('/eval_video/benchmark_landmarks.jsonl');
@@ -319,7 +382,6 @@ async function loadAll(selectedVersion = null) {
     } catch(e) { console.error("Landmarks load fail:", e); }
   }
 
-  // 2) Punch events from API (with optional version)
   try {
     const url = (selectedVersion && selectedVersion !== "latest") ? `/api/eval-punches?version=${selectedVersion}` : '/api/eval-punches';
     const r2 = await fetch(url);
@@ -342,7 +404,7 @@ verSel.addEventListener('change', (e) => {
 
 loadVersions().then(() => loadAll());
 
-// ==================== Stats Rendering ====================
+// ==================== 4. 통계 렌더링 ====================
 function renderStats() {
   document.getElementById('m-total').innerText = punchEvents.length;
   const suspects = punchEvents.filter(p => p.conf_margin <= 0);
@@ -352,7 +414,6 @@ function renderStats() {
   const avgConf = punchEvents.length ? (punchEvents.reduce((s, p) => s + p.conf_margin, 0) / punchEvents.length).toFixed(2) : '--';
   document.getElementById('m-avg-conf').innerText = avgConf;
 
-  // Type breakdown
   const types = {};
   punchEvents.forEach(p => { types[p.action] = (types[p.action] || 0) + 1; });
   const tbDiv = document.getElementById('type-breakdown');
@@ -360,7 +421,6 @@ function renderStats() {
     `<div class="type-row"><span class="type-name">${k}</span><span>${v}회</span></div>`
   ).join('');
 
-  // Phase analysis
   const paDiv = document.getElementById('phase-analysis');
   paDiv.innerHTML = PROTOCOL.map(ph => {
     const detected = punchEvents.filter(p => p.t_ms >= ph.t0 * 1000 && p.t_ms < ph.t1 * 1000).length;
@@ -399,7 +459,7 @@ function renderMarkers() {
   markersCtx.globalAlpha = 1;
 }
 
-// ==================== Skeleton Drawing ====================
+// ==================== 5. 2D 스켈레톤 렌더링 ====================
 function resizeSkel() {
   const r = video.getBoundingClientRect();
   if (r.width > 0) { skelCv.width = r.width; skelCv.height = r.height; }
@@ -429,37 +489,58 @@ function drawSkel(lm) {
   });
 }
 
-// ==================== 3D Avatar Update ====================
-function upd3D(lm, wl, tMs) {
-  if (!lm || !wl || wl.length <= 16) return;
-  const S = 2.8, BY = 1.6;
-  function v3(p) { const x = Array.isArray(p) ? p[0] : p.x, y = Array.isArray(p) ? p[1] : p.y, z = Array.isArray(p) ? p[2] : p.z; return new THREE.Vector3(-x*S, BY - y*S, -z*S*1.5 + 0.3); }
+// ==================== 6. Arena 3D 복서 모션 동기화 ====================
+function updateArenaFighter(lm, wl, tMs) {
+  if (!myFighter) return;
 
-  head3.position.lerp(v3(wl[0]), 0.5);
-  shL.position.lerp(v3(wl[11]), 0.5); shR.position.lerp(v3(wl[12]), 0.5);
-  elL.position.lerp(v3(wl[13]), 0.5); elR.position.lerp(v3(wl[14]), 0.5);
-  gL.position.lerp(v3(wl[15]), 0.55); gR.position.lerp(v3(wl[16]), 0.55);
-  layB(buL, shL.position, elL.position); layB(bfL, elL.position, gL.position);
-  layB(buR, shR.position, elR.position); layB(bfR, elR.position, gR.position);
+  // 1) 풋워크 & 상체 스웨이 연동
+  if (wl && wl.length > 12) {
+    const lsh = Array.isArray(wl[11]) ? { x: wl[11][0], y: wl[11][1] } : wl[11];
+    const rsh = Array.isArray(wl[12]) ? { x: wl[12][0], y: wl[12][1] } : wl[12];
+    const rollAng = Math.atan2(lsh.y - rsh.y, Math.abs(lsh.x - rsh.x));
+    
+    // 좌우 스텝 이동
+    const targetX = rollAng * 3.5;
+    myFighter.group.position.x = THREE.MathUtils.lerp(myFighter.group.position.x, -targetX, 0.12);
+  }
 
-  const mid = new THREE.Vector3().addVectors(shL.position, shR.position).multiplyScalar(0.5);
-  torso3.position.set(mid.x, mid.y - 0.45, mid.z * 0.5);
+  // 2) 가드 판정 연동
+  if (lm && lm.length > 16) {
+    const nP = Array.isArray(lm[0]) ? { x: lm[0][0], y: lm[0][1] } : lm[0];
+    const lwrP = Array.isArray(lm[15]) ? { x: lm[15][0], y: lm[15][1] } : lm[15];
+    const rwrP = Array.isArray(lm[16]) ? { x: lm[16][0], y: lm[16][1] } : lm[16];
+    const lshP = Array.isArray(lm[11]) ? { x: lm[11][0], y: lm[11][1] } : lm[11];
+    const rshP = Array.isArray(lm[12]) ? { x: lm[12][0], y: lm[12][1] } : lm[12];
+    
+    const dl = Math.hypot(lwrP.x - nP.x, lwrP.y - nP.y);
+    const dr = Math.hypot(rwrP.x - nP.x, rwrP.y - nP.y);
+    const isGuard = (lwrP.y < lshP.y + 0.1) && (rwrP.y < rshP.y + 0.1) && dl < 0.32 && dr < 0.32;
+    if (isGuard && performance.now() - lastPopT > 400) {
+      myFighter.setAction("DUAL_GUARD");
+    }
+  }
 
-  // Check if current time matches a punch event
-  const curPunch = punchEvents.find(p => Math.abs(p.t_ms - tMs) < 200);
-  if (curPunch && performance.now() - lastPopT > 500) {
+  // 3) 펀치 이벤트 발동
+  const curPunch = punchEvents.find(p => Math.abs(p.t_ms - tMs) < 220);
+  if (curPunch && performance.now() - lastPopT > 450) {
     lastPopT = performance.now();
+    myFighter.setAction(curPunch.action);
+
     actionPop.innerText = `💥 ${curPunch.action} (${curPunch.speed_kmh.toFixed(1)} km/h)`;
     actionPop.classList.add('show');
     hudNow.innerText = curPunch.action;
     hudNow.style.color = 'var(--pink)';
 
+    // 상대방 피격 리액션 및 스파크 이펙트
+    if (dummyOpponent) {
+      dummyOpponent.hit(8);
+    }
     if (hitFx && hitFx.spawnHit) {
-      const hp = curPunch.action.startsWith("LEFT") ? gL.position.clone() : gR.position.clone();
-      hp.z += 0.3;
-      hitFx.spawnHit(hp, 0xFF3366, 8, false);
+      const hitPos = new THREE.Vector3(myFighter.group.position.x, 3.8, -1.8);
+      hitFx.spawnHit(hitPos, 0xFF3366, 8, false);
     }
   }
+
   if (performance.now() - lastPopT > 600) {
     actionPop.classList.remove('show');
     hudNow.innerText = 'IDLE';
@@ -467,7 +548,7 @@ function upd3D(lm, wl, tMs) {
   }
 }
 
-// ==================== Binary search ====================
+// ==================== 7. Binary Search & Sync Loop ====================
 function findFrame(tMs) {
   if (!frames.length) return null;
   let lo = 0, hi = frames.length - 1;
@@ -475,15 +556,16 @@ function findFrame(tMs) {
   return frames[Math.min(lo, frames.length - 1)];
 }
 
-// ==================== Main Sync Loop ====================
 let fpsFrames = 0, fpsLast = performance.now();
 function sync() {
   if (frames.length > 0) {
     const ms = Math.round(video.currentTime * 1000);
     const d = findFrame(ms);
-    if (d) { drawSkel(d.lm); upd3D(d.lm, d.wl, ms); }
+    if (d) { 
+      drawSkel(d.lm); 
+      updateArenaFighter(d.lm, d.wl, ms);
+    }
   }
-  // FPS counter
   fpsFrames++;
   const now = performance.now();
   if (now - fpsLast > 1000) { hudFps.innerText = fpsFrames; fpsFrames = 0; fpsLast = now; }
@@ -491,14 +573,14 @@ function sync() {
 }
 requestAnimationFrame(sync);
 
-// Highlight current event in log
+// ==================== Controls & Animate ====================
 video.addEventListener('timeupdate', () => {
   tCur.innerText = fmt(video.currentTime);
   seek.value = video.currentTime;
-  // highlight closest event
-  document.querySelectorAll('.log-entry').forEach(el => el.style.outline = 'none');
+  
   const tMs = video.currentTime * 1000;
   const closest = punchEvents.reduce((best, p) => Math.abs(p.t_ms - tMs) < Math.abs((best?.t_ms ?? 1e9) - tMs) ? p : best, null);
+  document.querySelectorAll('.log-entry').forEach(el => el.style.outline = 'none');
   if (closest && Math.abs(closest.t_ms - tMs) < 1000) {
     const idx = punchEvents.indexOf(closest);
     const el = document.querySelectorAll('.log-entry')[idx];
@@ -516,7 +598,7 @@ btnPlay.addEventListener('click', () => {
 });
 seek.addEventListener('input', () => { video.currentTime = parseFloat(seek.value); });
 document.getElementById('speed-sel').addEventListener('change', e => { video.playbackRate = parseFloat(e.target.value); });
-document.getElementById('btn-cam').addEventListener('click', () => { cam3.position.set(0, 2.8, 6.2); orb.target.set(0, 1.4, 0); });
+document.getElementById('btn-cam').addEventListener('click', setCameraFighter);
 
 window.addEventListener('resize', () => {
   tw = threeBox.clientWidth; th = threeBox.clientHeight;
@@ -524,8 +606,17 @@ window.addEventListener('resize', () => {
   resizeSkel(); renderMarkers();
 });
 
+// Render Loop (휴머노이드 절차적 애니메이션 60fps 보간)
 const clk = new THREE.Clock();
-function anim() { requestAnimationFrame(anim); orb.update(); if (hitFx) hitFx.update(clk.getDelta()); ren.render(scene, cam3); }
+function anim() {
+  requestAnimationFrame(anim);
+  const dt = clk.getDelta();
+  orb.update();
+  if (myFighter) myFighter.update(dt);
+  if (dummyOpponent) dummyOpponent.update(dt);
+  if (hitFx) hitFx.update(dt);
+  ren.render(scene, cam3);
+}
 anim();
 </script>
 </body>
