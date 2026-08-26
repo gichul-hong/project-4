@@ -7,15 +7,15 @@
   <title>AR Boxing Controller</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
-  <script src="/static/humanoid.js?v=5"></script>
+  <script src="/static/humanoid.js?v=6"></script>
   <script src="/static/effects.js?v=2"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <!-- Face Mesh 는 "얼굴 등록" 캡처 순간에만 돌린다. 게임 중에는 Pose 만 돌아 FPS 영향이 없다. -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="/static/punch_core.js?v=2"></script>
+  <script src="/static/punch_core.js?v=3"></script>
   <script src="/static/sound.js?v=1"></script>
-  <script src="/static/face3d.js?v=4"></script>
+  <script src="/static/face3d.js?v=5"></script>
   <style>
     :root { --f-color: {{ color }}; --mono: "Cascadia Mono", monospace; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -434,6 +434,7 @@
     let hurtFlash = 0;              // 피격 비네트 세기 0..1 (시간 감쇠)
     let prevShieldOn = false;       // 가드가 켜지는 "순간"에만 소리를 낸다
     let camKickUlt = 0;             // 필살기 발동 시 카메라 반동
+    let ultChargeNow = 0;           // 필살기 자세 충전 진행도 0..1
     let shakeT = 0, shakeMag = 0;   // 피격 카메라 흔들림
 
     const oppHp = {};               // { client_id: hp } — K.O.된 상대는 조준·접근 대상에서 뺀다
@@ -533,7 +534,7 @@
       const full = r >= 100;
       rageTrack.classList.toggle('full', full);
       rageLabel.innerHTML = full
-        ? '<span class="rage-ready">⚡ 필살기 준비 — 양손을 모았다가 앞으로!</span>'
+        ? '<span class="rage-ready">⚡ 필살기 준비 — 양손을 머리 위로!</span>'
         : 'RAGE';
     }
     renderRage(0);
@@ -764,9 +765,19 @@
       // --- 회전: 주먹의 좌/우 이동 ---
       SHIFT_ON: 0.40, SHIFT_OFF: 0.24, SHIFT_RANGE: 0.45,
       // --- 오검출 억제 (프레임 수가 아니라 시간 기준) ---
-      SMOOTH_TAU: 0.19,        // 자세 신호 EMA 시상수(초)
-      HOLD_ON_MS: 190,         // 상태 확정에 필요한 유지 시간
-      HOLD_OFF_MS: 120,
+      // 이동 반응 지연 — 펀치는 창 래치로 즉시 나가는데 이동은 세 가지가 겹쳐 느렸다.
+      //   EMA 0.19s  →  상태 확정 190ms  →  강도 램프 0.13s   합치면 체감 0.4~0.5초
+      // 셋 다 줄이고, 아래 FAST_RATIO 로 "확실한 신호는 기다리지 않는" 경로를 뒀다.
+      SMOOTH_TAU: 0.11,        // 자세 신호 EMA 시상수(초)
+      HOLD_ON_MS: 110,         // 상태 확정에 필요한 유지 시간
+      HOLD_OFF_MS: 100,
+      INTENSITY_TAU: 0.07,     // 강도 램프 시상수(초)
+      // 임계값을 이 배수만큼 넘기면 투표를 기다리지 않고 즉시 확정한다.
+      // 투표는 애매한 신호의 흔들림을 막으려는 것이지, 크고 분명한 동작까지 붙잡아 둘 이유가 없다.
+      FAST_RATIO: 1.7,
+      // 상태가 확정됐는데 강도가 0 에 가까우면 "켜졌는데 안 움직인다"가 되어 결국 느리게 느껴진다.
+      // 임계값을 갓 넘긴 자세라도 최소 이만큼은 움직인다.
+      MOVE_MIN_INTENSITY: 0.38,
       // --- 펀치 ---
       // 펀치 판정 상수는 여기 없다. static/punch_core.js 가 단일 소스이며
       // 아래 Object.assign 으로 이 TUNE 에 병합된다 (기존 TUNE.PUNCH_* 참조는 그대로 동작).
@@ -1022,8 +1033,14 @@
     // 펀치 운동학·분류·발동은 전부 punchCore 로 옮겼다 (static/punch_core.js).
     // 이 파일에는 판정 로직이 남아 있지 않다 — 하니스가 같은 파일을 import 해 검증한다.
 
-    function vote(box, cand, cur, now) {
+    /**
+     * 상태 투표. 후보가 일정 시간 유지돼야 확정된다.
+     * @param {boolean} immediate 신호가 임계값을 크게 넘겼는가 — 그러면 기다리지 않는다.
+     *   펀치가 빠른 이유는 이런 "확실한 증거는 즉시" 경로가 있기 때문이다. 이동에도 준다.
+     */
+    function vote(box, cand, cur, now, immediate) {
       if (cand !== box.cand) { box.cand = cand; box.since = now; }
+      if (immediate && cand !== "NONE") { box.since = now - 1e6; return cand; }
       const need = (cand === "NONE") ? TUNE.HOLD_OFF_MS : TUNE.HOLD_ON_MS;
       return (now - box.since >= need) ? cand : cur;
     }
@@ -1083,7 +1100,13 @@
           mCand = (moveState === "FORWARD" || moveState === "BACK") ? moveState : "NONE";
         }
       }
-      moveState = vote(moveVote, mCand, moveState, now);
+      // "임계값을 FAST_RATIO 배만큼 넘겼는가" — 넘겼으면 투표를 건너뛴다
+      const F = TUNE.FAST_RATIO;
+      let mFast = false;
+      if (mCand === "LEFT" || mCand === "RIGHT") mFast = Math.abs(sRoll) > TUNE.ROLL_ON * F;
+      else if (mCand === "FORWARD") mFast = sPitch > TUNE.PITCH_ON * F;
+      else if (mCand === "BACK") mFast = -sPitch > TUNE.PITCH_BACK_ON * F;
+      moveState = vote(moveVote, mCand, moveState, now, mFast);
 
       // --- 회전: 어깨 평행 + 주먹 좌/우 이동. 이동 상태와 무관하게 판정 ---
       let rCand = "NONE";
@@ -1092,17 +1115,23 @@
         if (sShift > sOn) rCand = "ROT_LEFT";
         else if (sShift < -sOn) rCand = "ROT_RIGHT";
       }
-      rotState = vote(rotVote, rCand, rotState, now);
+      rotState = vote(rotVote, rCand, rotState, now,
+                      rCand !== "NONE" && Math.abs(sShift) > TUNE.SHIFT_ON * TUNE.FAST_RATIO);
 
       // --- 강도: 임계값을 넘은 만큼 비례 (0~1), 급변 방지용 EMA (시상수 0.13s) ---
-      const ka = 1 - Math.exp(-dtPose / 0.13);
+      const ka = 1 - Math.exp(-dtPose / TUNE.INTENSITY_TAU);
       let mi = 0;
       if (moveState === "LEFT" || moveState === "RIGHT") mi = clamp01((Math.abs(sRoll) - TUNE.ROLL_OFF) / TUNE.ROLL_RANGE);
       else if (moveState === "FORWARD") mi = clamp01((sPitch - TUNE.PITCH_OFF) / TUNE.PITCH_RANGE);
       else if (moveState === "BACK") mi = clamp01((-sPitch - TUNE.PITCH_BACK_OFF) / TUNE.PITCH_BACK_RANGE);
-      moveIntensity += (mi - moveIntensity) * ka;
+      // 즉시 확정된 경우에는 강도 램프도 건너뛴다. 상태만 빨리 켜고 강도를 천천히 올리면
+      // "확정은 됐는데 안 움직이는" 구간이 생겨 결국 똑같이 느리게 느껴진다.
+      // 확정된 상태에는 최소 강도를 보장한다 (임계값을 갓 넘긴 자세도 또렷하게 움직이도록)
+      if (moveState !== "NONE") mi = Math.max(mi, TUNE.MOVE_MIN_INTENSITY);
+      moveIntensity = mFast ? Math.max(moveIntensity, mi) : moveIntensity + (mi - moveIntensity) * ka;
 
-      const ri = (rotState === "NONE") ? 0 : clamp01((Math.abs(sShift) - TUNE.SHIFT_OFF) / TUNE.SHIFT_RANGE);
+      let ri = (rotState === "NONE") ? 0 : clamp01((Math.abs(sShift) - TUNE.SHIFT_OFF) / TUNE.SHIFT_RANGE);
+      if (rotState !== "NONE") ri = Math.max(ri, TUNE.MOVE_MIN_INTENSITY);
       rotIntensity += (ri - rotIntensity) * ka;
       if (rotState !== "NONE") lastRotInputT = now;
     }
@@ -1296,10 +1325,11 @@
                     && Math.min(vL, vR) > 0.8
                     && Math.min(vL, vR) > 0.6 * Math.max(vL, vR);
 
-      // 두 손목 사이 거리 (어깨폭 배수) — 필살기의 "손을 모았다" 판정에 쓴다
-      const wristGapN = Math.hypot(M(P.L_WR).x - M(P.R_WR).x,
-                                   M(P.L_WR).y - M(P.R_WR).y,
-                                   M(P.L_WR).z - M(P.R_WR).z) / wsh;
+      // 손목이 코보다 얼마나 위인가 (어깨폭 배수, 양수 = 위).
+      // world 좌표는 y 가 아래로 증가하므로 (코y − 손목y) 가 양수면 손이 위다.
+      const noseY = M(P.NOSE).y;
+      const lWristUpN = (noseY - M(P.L_WR).y) / wsh;
+      const rWristUpN = (noseY - M(P.R_WR).y) / wsh;
 
       // 가드 중이라도 한쪽 팔이 뻗어 나가면 펀치다 — 복싱 스탠스는 항상 가드에 가깝기 때문에
       // 가드로 펀치를 막으면 정작 스탠스를 제대로 잡은 사람이 펀치를 못 낸다.
@@ -1308,7 +1338,7 @@
         // 필살기를 먼저 본다. 양손을 함께 밀어내는 동작이라, 일반 펀치로 먼저 소비되면
         // 정작 필살기가 발동하지 못한다.
         if (armVis.L && armVis.R) {
-          punch = punchCore.tryUltimate(kL, kR, wristGapN, now, myRage >= 100);
+          punch = punchCore.tryUltimate(kL, kR, lWristUpN, rWristUpN, now, myRage >= 100);
         }
         if (!punch && !sweeping) {
           const a = armVis.L ? punchCore.tryPunch(kL, now) : null;
@@ -1881,6 +1911,13 @@
         hitFlash.style.opacity = hurtFlash.toFixed(3);
       }
 
+      // 필살기 자세를 잡고 있는 동안의 충전 진행도 (0~1)
+      ultChargeNow = punchCore.ultCharge(now);
+      if (ultChargeNow > 0.01) {
+        rageFill.style.width = '100%';
+        rageLabel.innerHTML = `<span class="rage-ready">⚡ 필살기 충전 ${(ultChargeNow * 100) | 0}%</span>`;
+      }
+
       // 타격/K.O. 이펙트 갱신
       hitFx.update(dt);
 
@@ -1946,7 +1983,8 @@
         `  need : fwd +${TUNE.PITCH_ON.toFixed(3)}  back -${TUNE.PITCH_BACK_ON.toFixed(3)}` +
         `  ${moveCal.ready ? '[내 범위]' : '[기본값]'}\n` +
         `FistX : ${sShift.toFixed(2)}  Guard: ${guardActive ? "ON" : "--"}` +
-        `  Rage: ${Math.round(myRage)}${punchCore.isUltArmed(performance.now()) ? " [ULT 장전]" : ""}\n` +
+        `  Rage: ${Math.round(myRage)}` +
+        (ultChargeNow > 0.01 ? ` [ULT ${(ultChargeNow * 100) | 0}%]` : "") + `\n` +
         `ArmL  : reach ${dbg.L.reachN.toFixed(2)} v ${dbg.L.speed.toFixed(1)}${arms.L.armed ? " *" : ""}\n` +
         `ArmR  : reach ${dbg.R.reachN.toFixed(2)} v ${dbg.R.speed.toFixed(1)}${arms.R.armed ? " *" : ""}\n` +
         `Pose  : ${latestPose ? "7 nodes" : "none"} ${poseFps.toFixed(0)}fps [${cal}]\n` +

@@ -69,6 +69,7 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   return {
     applied: true, inside, worst, faceZ: dz,
     tris: f.triangleCount,
+    fullHead: !!f.isFullHead,
     headVisible: h.head.visible,
     faceInScene: !!f.mesh.parent,
     faceVisible: f.mesh.visible !== false,
@@ -95,11 +96,49 @@ const CHECK_BURIED = (meshExpr) => `(() => {
      hostRes.applied ? `${hostRes.tris} 삼각형` : '적용 안 됨');
   if (hostRes.applied) {
     ck('얼굴 메쉬가 씬에 붙어 있다', hostRes.faceInScene && hostRes.faceVisible);
-    ck('두개골 구에 파묻히지 않는다', hostRes.inside === 0,
-       `${hostRes.inside}개 박힘 · 최소비율 ${hostRes.worst.toFixed(2)} · z ${hostRes.faceZ.toFixed(2)}`);
-    ck('두개골 구는 남아 있다 (뒤통수)', hostRes.headVisible === true);
-    ck('삼각형 수가 canonical 값', hostRes.tris === 852, `${hostRes.tris}`);
+    ck('얼굴 삼각형이 canonical 값 이상 (두개골 포함)', hostRes.tris > 852, `${hostRes.tris}`);
+    if (hostRes.fullHead) {
+      // 닫힌 머리에서는 구를 숨기므로 "구에 파묻힌다"는 개념 자체가 없다.
+      // 대신 아래 '닫힌 머리' 절에서 깊이·정점 수를 본다.
+      ck('닫힌 머리이므로 구 머리를 숨긴다', hostRes.headVisible === false);
+    } else {
+      ck('(폴백) 두개골 구에 파묻히지 않는다', hostRes.inside === 0,
+         `${hostRes.inside}개 박힘 · 최소비율 ${hostRes.worst.toFixed(2)}`);
+      ck('(폴백) 두개골 구는 남아 있다', hostRes.headVisible === true);
+    }
   }
+
+  console.log('');
+  console.log('--- 닫힌 머리 (앞·옆·뒤 어디서 봐도 사람) ---');
+  const head = await a.evaluate(`(() => {
+    const h = fighterMeshes['client_1'];
+    const f = h.getFace();
+    if (!f) return { none: true };
+    const pos = f.mesh.geometry.attributes.position.array;
+    let zMin = Infinity, zMax = -Infinity, xMin = Infinity, xMax = -Infinity;
+    for (let i = 0; i < pos.length; i += 3) {
+      if (pos[i + 2] < zMin) zMin = pos[i + 2];
+      if (pos[i + 2] > zMax) zMax = pos[i + 2];
+      if (pos[i] < xMin) xMin = pos[i];
+      if (pos[i] > xMax) xMax = pos[i];
+    }
+    return {
+      isFullHead: f.isFullHead,
+      tris: f.triangleCount,
+      depth: zMax - zMin, width: xMax - xMin,
+      skullHidden: h.head.visible === false,
+      jawHidden: h.jaw ? h.jaw.visible === false : null,
+      side: f.mesh.material.side,
+      verts: pos.length / 3,
+    };
+  })()`);
+  ck('뒤통수까지 닫힌 머리로 만들어진다', head.isFullHead === true);
+  ck('얼굴(468)보다 정점이 많다 (두개골이 붙었다)', head.verts > 468, `${head.verts}개`);
+  ck('머리 깊이가 폭의 절반 이상 (판자가 아니다)', head.depth > head.width * 0.5,
+     `깊이 ${head.depth.toFixed(2)} / 폭 ${head.width.toFixed(2)}`);
+  ck('구 머리를 숨긴다 (겹치지 않는다)', head.skullHidden === true);
+  ck('턱 덩어리도 숨긴다', head.jawHidden === true);
+  ck('앞면만 렌더한다 (안쪽이 비치지 않게)', head.side === 0, `side=${head.side}`);
 
   // face_bulk (나중에 접속한 host 가 기존 얼굴들을 한 번에 받는 경로)
   await a.evaluate(`socket.onmessage({ data: JSON.stringify({
@@ -142,9 +181,13 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   ck('상대 아바타에 얼굴이 적용된다', cliRes.applied === true,
      cliRes.applied ? `${cliRes.tris} 삼각형` : '적용 안 됨');
   if (cliRes.applied) {
-    ck('두개골 구에 파묻히지 않는다', cliRes.inside === 0,
-       `${cliRes.inside}개 박힘 · 최소비율 ${cliRes.worst.toFixed(2)} · z ${cliRes.faceZ.toFixed(2)}`);
-    ck('얼굴이 두개골 앞쪽에 놓인다', cliRes.faceZ > 0, cliRes.faceZ.toFixed(2));
+    if (cliRes.fullHead) {
+      ck('1인칭에서도 닫힌 머리로 적용된다', cliRes.headVisible === false);
+    } else {
+      ck('(폴백) 두개골 구에 파묻히지 않는다', cliRes.inside === 0,
+         `${cliRes.inside}개 박힘 · 최소비율 ${cliRes.worst.toFixed(2)}`);
+      ck('(폴백) 얼굴이 두개골 앞쪽에 놓인다', cliRes.faceZ > 0, cliRes.faceZ.toFixed(2));
+    }
   }
 
   const ferrs = f.logs.filter(l => l.kind === 'EXCEPTION');

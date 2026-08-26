@@ -185,5 +185,59 @@ console.log('--- 전진/후진 비대칭 (실사용 피드백: 전진이 너무 
   ck('중립(0)에서는 아무 상태도 안 걸린다', settle(0) === 'NONE', settle(0));
 }
 
+console.log('');
+console.log('--- 이동 반응 지연 (펀치는 빠른데 이동만 느리다는 피드백) ---');
+{
+  /**
+   * 중립에서 시작해 pitch 를 걸었을 때 **실제로 움직이기 시작할 때까지** 걸리는 시간(ms).
+   * 상태가 확정돼도 강도가 0 이면 안 움직이므로, 강도가 의미 있게 붙는 시점을 잰다.
+   */
+  function latency(pitch, want, minIntensity) {
+    sim.set({ locked: false, sRoll: 0, sPitch: 0 });
+    let t = 900000;
+    for (let i = 0; i < 60; i++) { t += DT * 1000; sim.step(t, DT); }   // 중립 안정화
+    sim.set({ locked: false, sRoll: 0, sPitch: pitch });
+    const t0 = t;
+    for (let i = 0; i < 200; i++) {
+      t += DT * 1000;
+      sim.step(t, DT);
+      const g = sim.get();
+      if (g.moveState === want && g.moveIntensity >= (minIntensity || 0.25)) return t - t0;
+    }
+    return Infinity;
+  }
+
+  // 살짝 넘긴 경우 (투표를 거쳐야 한다)
+  const slow = latency(TUNE.PITCH_ON * 1.15, 'FORWARD');
+  // 확실히 크게 숙인 경우 (즉시 확정 경로)
+  const fast = latency(TUNE.PITCH_ON * 2.2, 'FORWARD');
+  console.log(`       살짝 숙임 ${slow.toFixed(0)}ms · 크게 숙임 ${fast.toFixed(0)}ms`);
+
+  ck('크게 숙이면 즉시 반응한다 (<=120ms)', fast <= 120, `${fast.toFixed(0)}ms`);
+  ck('살짝 숙여도 예전보다 빠르다 (<=320ms)', slow <= 320, `${slow.toFixed(0)}ms`);
+  ck('크게 숙인 쪽이 더 빠르다', fast < slow, `${fast.toFixed(0)} < ${slow.toFixed(0)}`);
+
+  // 좌우도 같은 경로를 타는가
+  function latencyRoll(roll, want) {
+    sim.set({ locked: false, sRoll: 0, sPitch: 0 });
+    let t = 950000;
+    for (let i = 0; i < 60; i++) { t += DT * 1000; sim.step(t, DT); }
+    sim.set({ locked: false, sRoll: roll, sPitch: 0 });
+    const t0 = t;
+    for (let i = 0; i < 200; i++) {
+      t += DT * 1000; sim.step(t, DT);
+      const g = sim.get();
+      if (g.moveState === want && g.moveIntensity >= 0.25) return t - t0;
+    }
+    return Infinity;
+  }
+  const rollFast = latencyRoll(TUNE.ROLL_ON * 2.2, 'LEFT');
+  ck('좌우 스텝도 즉시 반응한다 (<=120ms)', rollFast <= 120, `${rollFast.toFixed(0)}ms`);
+
+  // 오검출 방어가 살아 있는가 — 임계값 바로 아래는 여전히 안 걸린다
+  ck('임계값 아래는 여전히 발동하지 않는다',
+     latency(TUNE.PITCH_ON * 0.85, 'FORWARD') === Infinity);
+}
+
 console.log(fail === 0 ? '\n>>> 전부 통과' : `\n>>> ${fail}개 실패`);
 process.exit(fail ? 1 : 0);

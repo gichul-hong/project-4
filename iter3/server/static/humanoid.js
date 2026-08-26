@@ -515,43 +515,66 @@
     function setFace(face) {
       if (faceObj && faceObj.mesh && faceObj.mesh.parent) rig.remove(faceObj.mesh);
       faceObj = face || null;
+
       if (faceObj && faceObj.mesh) {
-        // **피부톤을 얼굴 사진에 맞춘다.** 두개골이 원래 색 그대로면 얼굴 가장자리에서
-        // 색이 뚝 끊겨 "가면을 쓴 인형"으로 보인다. 머리·목·팔다리를 같은 톤으로 맞추면
-        // 경계가 사라지고 얼굴이 그 사람 머리의 일부로 읽힌다.
+        // **피부톤을 얼굴 사진에 맞춘다.** 목·팔다리가 원래 색 그대로면 목선에서 색이 끊긴다.
         if (faceObj.skinTone) {
           headMat.color.setHex(faceObj.skinTone);
           skinMat.color.setHex(faceObj.skinTone);
         }
 
-        // 얼굴 메쉬를 두개골 크기에 맞춘다. 호출부가 어떤 width 로 만들었든
-        // 머리 비율이 바뀌면 그대로 어긋나므로, 여기서 실측 폭으로 다시 맞춘다.
         const fb = faceObj.bounds;
+        const fullHead = !!faceObj.isFullHead;
+
+        // 머리 크기에 맞춘다. 호출부가 어떤 width 로 만들었든 여기서 실측 폭으로 다시 맞춘다.
+        let k = 1;
         if (fb && fb.xMax > fb.xMin) {
-          const want = HEAD_R * SKULL_SCALE.x * 2.05;      // 두개골 폭보다 살짝 크게
-          const k = want / (fb.xMax - fb.xMin);
+          k = HEAD_R * SKULL_SCALE.x * (fullHead ? 2.20 : 2.05) / (fb.xMax - fb.xMin);
           faceObj.mesh.scale.setScalar(k);
         }
-        // Face Mesh 는 얼굴 **앞면만** 덮는다. 구 머리를 숨겨버리면 뒤통수가 없는
-        // "떠 있는 가면"이 되므로, 구는 두개골로 남기고 얼굴을 그 **앞면 바깥**에 얹는다.
-        //
-        // 배치를 상수로 박으면 안 된다. 얼굴 깊이는 사람마다 다르고, 조금만 뒤로 가면
-        // 얼굴 전체가 구 안에 파묻혀 **아무것도 안 보인다**(실제로 그렇게 됐었다).
-        // 얼굴의 가장 뒤쪽 점(bounds.zMin)이 두개골 표면보다 앞에 오도록 역산한다.
-        head.scale.set(SKULL_SCALE.x, SKULL_SCALE.y, SKULL_SCALE.z);
-        faceObj.mesh.position.set(0, head.position.y, faceForwardOffset(faceObj));
+
+        if (fullHead) {
+          // 뒤통수까지 닫힌 머리다 — 구·턱·바이저·헤드기어를 **전부** 숨긴다.
+          // 앞뒤로 겹치는 것이 없으니 "가면을 쓴 인형"이 될 여지가 사라진다.
+          head.visible = false;
+          jaw.visible = false;
+          visor.visible = false;
+          headgear.visible = false;
+          // 메쉬 중심을 머리 위치에 맞춘다. 얼굴만 있을 때와 달리 두개골 때문에
+          // 무게중심이 뒤로 가 있으므로 실제 바운딩 중심을 빼 준다.
+          faceObj.__yOff = -(fb.yMin + fb.yMax) / 2 * k;
+          faceObj.mesh.position.set(
+            -(fb.xMin + fb.xMax) / 2 * k,
+            head.position.y + faceObj.__yOff,
+            -(fb.zMin + fb.zMax) / 2 * k
+          );
+          // 귀는 머리 옆면에 맞춰 다시 놓는다
+          const halfW = (fb.xMax - fb.xMin) / 2 * k;
+          ears.forEach((e, i) => {
+            e.position.x = (i === 0 ? -1 : 1) * halfW * 0.94;
+            e.visible = true;
+          });
+        } else {
+          // 앞면만 있는 메쉬(폴백) — 구를 두개골로 남기고 그 **앞면 바깥**에 얹는다.
+          // 배치를 상수로 박으면 안 된다. 얼굴 깊이는 사람마다 다르고, 조금만 뒤로 가면
+          // 얼굴 전체가 구 안에 파묻혀 아무것도 안 보인다(실제로 그렇게 됐었다).
+          head.scale.set(SKULL_SCALE.x, SKULL_SCALE.y, SKULL_SCALE.z);
+          faceObj.__yOff = 0;
+          faceObj.mesh.position.set(0, head.position.y, faceForwardOffset(faceObj));
+          head.visible = true;
+          jaw.visible = true;
+          visor.visible = false;
+          headgear.visible = false;
+        }
         rig.add(faceObj.mesh);
-        head.visible = true;
-        // 바이저와 헤드기어는 얼굴 위를 가로지른다 — 링이 눈·코 한가운데를 지나가 버린다.
-        // 파이터 식별은 트렁크·글러브 색으로 충분하므로 얼굴이 있을 때는 둘 다 숨긴다.
-        visor.visible = false;
-        headgear.visible = false;
       } else {
         head.visible = true;
+        jaw.visible = true;
         head.scale.set(0.94, 1.10, 0.96);
         headMat.color.setHex(0xc08a63);
         visor.visible = true;
         headgear.visible = true;
+        ears.forEach((e, i) => { e.position.x = (i === 0 ? -1 : 1) * HEAD_R * 0.92; });
       }
     }
 
@@ -678,7 +701,9 @@
       // 3D 얼굴 — 호흡/피격/표정 갱신은 얼굴 모듈이 스스로 한다
       if (faceObj) {
         faceObj.update(dt);
-        faceObj.mesh.position.y = head.position.y;
+        // 호흡에 맞춰 머리와 함께 오르내린다. 닫힌 머리는 바운딩 중심 보정이 들어가 있으므로
+        // setFace 가 계산한 오프셋(__yOff)을 유지한 채 y 만 따라가게 한다.
+        faceObj.mesh.position.y = head.position.y + (faceObj.__yOff || 0);
         faceObj.mesh.visible = group.visible;
       }
 
@@ -752,7 +777,8 @@
     }
 
     return {
-      group, rig, head, body: torso, leftGlove: armL.glove, rightGlove: armR.glove, shield,
+      group, rig, head, jaw, ears, headgear, body: torso,
+      leftGlove: armL.glove, rightGlove: armR.glove, shield,
       armL, armR, legL, legR, visor,
       setAction, update, hit, setDown, setFace, setRage,
       getRage: () => S.rage,

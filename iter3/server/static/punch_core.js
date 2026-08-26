@@ -57,16 +57,22 @@
     HOOK_ELBOW: 158,
 
     // ── 필살기 (ENERGY_WAVE) ──────────────────────────────────────────
-    // 손가락 랜드마크를 쓰는 제스처는 Pose 와 Hands 를 같이 돌려야 해서 FPS 가 무너진다.
-    // 그래서 **상체 7노드만으로** 정의한다: 양손을 가슴에 모았다가 함께 앞으로 밀어낸다.
-    //   (1) 두 손이 서로 가까이 모인다      — 한 손 펀치와 구분되는 결정적 신호
-    //   (2) 두 팔이 함께 빠르게 뻗어 나간다  — 회전 제스처(옆으로 쓸기)와 구분된다
-    ULT_GATHER_N: 0.62,      // 두 손목 사이 거리가 어깨폭의 이 배수 이하면 "모았다"
-    ULT_GATHER_MS: 260,      // 그 상태를 이만큼 유지해야 장전된다
-    ULT_WINDOW: 620,         // 장전 후 이 시간 안에 밀어내야 한다(ms)
-    ULT_PUSH_SPEED: 1.1,     // 양손이 함께 나가는 최소 속도 (m/s, 둘 중 느린 쪽 기준)
-    ULT_PUSH_GROW: 0.30,     // 장전 시점 대비 뻗음 증가량 (어깨폭 배수, 양팔 평균)
-    ULT_CD: 1200,            // 필살기 쿨다운(ms)
+    //
+    // **양손을 머리 위로 번쩍 든다.** 그 자세를 잠깐 유지하면 발동한다.
+    //
+    // 처음에는 "가슴에 모았다가 앞으로 밀기"로 만들었는데 실사용에서 인식이 잘 안 됐다.
+    // 밀어내는 순간의 속도·뻗음을 동시에 요구하다 보니 자세가 조금만 어긋나도 놓친다.
+    // 손가락 랜드마크를 쓰면 더 정교하겠지만 Pose 와 Hands 를 같이 돌려야 해 FPS 가 무너진다.
+    //
+    // 그래서 **속도를 요구하지 않는 정적 자세**로 바꿨다. 이 편이 훨씬 안정적이다.
+    //   · 손목이 코보다 위 — 복싱 중에는 절대 나오지 않는 자세다(가드는 턱 높이가 최대)
+    //   · 양손 모두      — 한 손 펀치·훅과 구분된다
+    //   · 팔이 펴짐      — 머리를 감싸는 동작(팔꿈치 접힘)과 구분된다
+    // 세 조건을 동시에 만족한 채 0.35초만 있으면 된다. 속도가 안 걸리니 천천히 들어도 된다.
+    ULT_HANDS_UP_N: 0.28,    // 손목이 코보다 이만큼(어깨폭 배수) 위에 있어야 한다
+    ULT_REACH_N: 0.72,       // 팔이 이만큼 펴져 있어야 한다 (머리를 감싸면 이보다 짧다)
+    ULT_HOLD_MS: 350,        // 그 자세를 유지해야 하는 시간
+    ULT_CD: 1500,            // 필살기 쿨다운(ms)
 
     // 펀치 잠금 — 이 시간 동안 자세 신호를 갱신하지 않는다.
     // 펀치는 몸통 회전(투영 어깨폭 축소)과 주먹 이동을 동반해 roll/pitch/shift를 크게 흔들기 때문에,
@@ -207,50 +213,43 @@
     }
 
     /**
-     * 필살기 판정 — 양손을 모았다가 함께 앞으로 밀어낸다.
+     * 필살기 판정 — **양손을 머리 위로 든다.**
      *
-     * 일반 펀치와 겹치지 않게 만드는 것이 핵심이다.
-     *   · 펀치는 **한쪽 팔만** 빠르다 → 둘 중 느린 쪽 속도를 보면 갈린다
-     *   · 회전 제스처는 양손이 **옆으로** 쓸린다 → 뻗음(reach)이 늘지 않는다
-     * 여기서는 둘 다 요구하므로 다른 동작이 잘못 걸리지 않는다.
+     * 속도를 요구하지 않는 정적 자세라 "천천히 들어도" 걸린다. 밀어내기 방식은 순간 속도와
+     * 뻗음을 동시에 요구해서 자세가 조금만 어긋나도 놓쳤다.
      *
-     * @param {object} kL,kR  양팔 운동학 (kinematics 결과)
-     * @param {number} wristGapN 두 손목 사이 거리 (어깨폭 배수)
-     * @param {boolean} canUse   게이지가 찼는가 (서버가 최종 판정하지만, 못 쓸 때 장전하지 않는다)
-     * @returns {{action:string, speed:number}|null}
+     * @param {object} kL,kR   양팔 운동학 (kinematics 결과)
+     * @param {number} lWristUpN,rWristUpN  손목이 코보다 얼마나 위인가 (어깨폭 배수, 양수=위)
+     * @param {number} now
+     * @param {boolean} canUse 게이지가 찼는가
+     * @returns {{action:string, speed:number, kind:string}|null}
      */
-    function tryUltimate(kL, kR, wristGapN, now, canUse) {
-      if (!canUse) { ult.gatherT = 0; ult.armedT = 0; return null; }
+    function tryUltimate(kL, kR, lWristUpN, rWristUpN, now, canUse) {
+      if (!canUse) { ult.gatherT = 0; return null; }
       if (now - ult.lastFire < tune.ULT_CD) return null;
 
-      const avgReach = (kL.reachN + kR.reachN) / 2;
+      const up = lWristUpN > tune.ULT_HANDS_UP_N && rWristUpN > tune.ULT_HANDS_UP_N;
+      const extended = kL.reachN > tune.ULT_REACH_N && kR.reachN > tune.ULT_REACH_N;
 
-      // (1) 손을 모으고 있는가
-      if (wristGapN <= tune.ULT_GATHER_N) {
-        if (!ult.gatherT) ult.gatherT = now;
-        if (!ult.armedT && now - ult.gatherT >= tune.ULT_GATHER_MS) {
-          ult.armedT = now;
-          ult.reach0 = avgReach;
-        }
-      } else if (!ult.armedT) {
-        ult.gatherT = 0;      // 아직 장전 전인데 손이 벌어졌다 → 처음부터
-      }
+      if (!(up && extended)) { ult.gatherT = 0; return null; }
 
-      if (!ult.armedT) return null;
-      if (now - ult.armedT > tune.ULT_WINDOW) { ult.armedT = 0; ult.gatherT = 0; return null; }
+      if (!ult.gatherT) ult.gatherT = now;
+      ult.armedT = ult.gatherT;                 // HUD 표시용 (자세를 잡고 있는 중)
+      if (now - ult.gatherT < tune.ULT_HOLD_MS) return null;
 
-      // (2) 두 팔이 **함께** 빠르게 뻗어 나가는가
-      const slower = Math.min(kL.speed, kR.speed);
-      if (slower < tune.ULT_PUSH_SPEED) return null;
-      if (avgReach - ult.reach0 < tune.ULT_PUSH_GROW) return null;
-
-      ult.armedT = 0; ult.gatherT = 0;
+      ult.gatherT = 0; ult.armedT = 0;
       ult.lastFire = now;
       lastPunchAny = now;
       // 양팔 창 래치도 풀어 둔다 — 필살기 직후에 펀치가 겹쳐 나가지 않게
       arms.L.armed = false; arms.R.armed = false;
       arms.L.lastPunch = now; arms.R.lastPunch = now;
-      return { action: ULTIMATE, kind: 'ULTIMATE', speed: (kL.speed + kR.speed) / 2 };
+      return { action: ULTIMATE, kind: 'ULTIMATE', speed: Math.max(kL.speed, kR.speed) };
+    }
+
+    /** 필살기 자세를 잡고 있는 동안의 진행도 0..1 (HUD 게이지용) */
+    function ultCharge(now) {
+      if (!ult.gatherT) return 0;
+      return Math.max(0, Math.min(1, (now - ult.gatherT) / tune.ULT_HOLD_MS));
     }
 
     /** 필살기가 장전된 상태인가 (HUD 표시용) */
@@ -273,7 +272,7 @@
 
     return {
       tune, arms, PUNCH_NAME, ULTIMATE,
-      kinematics, classify, tryPunch, tryUltimate, isUltArmed,
+      kinematics, classify, tryPunch, tryUltimate, isUltArmed, ultCharge,
       isLocked, reset, disarm, angleDeg,
       getLastPunchAny: () => lastPunchAny,
       setLastPunchAny: (t) => { lastPunchAny = t; },

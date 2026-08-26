@@ -226,85 +226,87 @@ console.log('\n--- 임계값 주입 (튜닝·실험용) ---');
 }
 
 console.log('');
-console.log('--- 필살기 (ENERGY_WAVE): 양손을 모았다가 함께 밀어내기 ---');
+console.log('--- 필살기 (ENERGY_WAVE): 양손을 머리 위로 ---');
 {
   /**
-   * 필살기 궤적. 두 손을 가슴 앞으로 모았다가 함께 앞으로 밀어낸다.
-   * kinematics 가 실제로 속도를 계산하도록 **좌표만** 넣는다.
-   * @param opts.gatherMs  손을 모으고 유지하는 시간
-   * @param opts.gapN      모았을 때 두 손목 사이 거리 (어깨폭 배수)
-   * @param opts.pushBoth  false 면 한 손만 밀어낸다 (펀치와 구분되는지 확인용)
+   * 필살기 자세를 유지한다. 속도를 요구하지 않는 **정적 자세**라 좌표만 세워 두면 된다.
+   * @param opts.upN     손목이 코보다 얼마나 위인가 (어깨폭 배수). 음수면 손이 코 아래.
+   * @param opts.reachN  팔이 얼마나 펴졌는가 (어깨폭 배수)
+   * @param opts.oneHand true 면 왼손만 든다 (한 손으로는 안 걸려야 한다)
+   * @param opts.holdMs  자세 유지 시간
    */
-  function throwUlt(core, opts) {
+  function holdUlt(core, opts) {
     const SH = 0.40, dt = 1 / 30;
     const t0 = opts.t0 || 30000;
-    const gatherMs = opts.gatherMs !== undefined ? opts.gatherMs : 400;
-    const pushMs = 220;
-    const gapN = opts.gapN !== undefined ? opts.gapN : 0.40;
+    const hold = opts.holdMs !== undefined ? opts.holdMs : 700;
     const canUse = opts.canUse !== undefined ? opts.canUse : true;
+    const reach = (opts.reachN !== undefined ? opts.reachN : 0.95) * SH;
+    const upL = (opts.upN !== undefined ? opts.upN : 0.55) * SH;
+    const upR = opts.oneHand ? -0.30 * SH : upL;
     let out = null;
 
-    for (let ms = 0; ms <= gatherMs + pushMs * 2; ms += dt * 1000) {
+    for (let ms = 0; ms <= hold; ms += dt * 1000) {
       const now = t0 + ms;
-      let reachL, reachR, gap;
-      if (ms < gatherMs) {
-        reachL = reachR = 0.42; gap = gapN;              // 모으고 대기
-      } else {
-        const u = Math.min(1, (ms - gatherMs) / pushMs);
-        const env = Math.sin(Math.min(1, u * 1.1) * Math.PI * 0.5);
-        reachR = 0.42 + 0.78 * env;
-        reachL = opts.pushBoth === false ? 0.42 : reachR;
-        gap = gapN + 0.30 * env;                          // 밀면서 조금 벌어진다
-      }
-      const mk = (side, reach, xOff) => {
+      const mk = (side, up) => {
         const sh = { x: side === 'L' ? -SH / 2 : SH / 2, y: 0, z: 0 };
-        const wr = { x: xOff, y: -0.05, z: -reach * SH };
-        const el = { x: (sh.x + wr.x) / 2 + (side === 'L' ? -0.10 : 0.10),
-                     y: (sh.y + wr.y) / 2 + 0.08, z: (sh.z + wr.z) / 2 };
-        return core.kinematics(side, sh, el, wr, SH, now);
+        // 코는 어깨선보다 조금 위 (world 는 y 가 아래로 +)
+        const noseY = -0.55 * SH;
+        const wr = { x: sh.x * 1.15, y: noseY - up, z: -0.12 * SH };
+        // 팔 길이를 reach 에 맞춘다
+        const d = Math.hypot(wr.x - sh.x, wr.y - sh.y, wr.z - sh.z) || 1;
+        wr.x = sh.x + (wr.x - sh.x) / d * reach;
+        wr.y = sh.y + (wr.y - sh.y) / d * reach;
+        wr.z = sh.z + (wr.z - sh.z) / d * reach;
+        const el = { x: (sh.x + wr.x) / 2, y: (sh.y + wr.y) / 2, z: (sh.z + wr.z) / 2 };
+        return { k: core.kinematics(side, sh, el, wr, SH, now), noseY };
       };
-      const kL = mk('L', reachL, -gap * SH / 2);
-      const kR = mk('R', reachR, gap * SH / 2);
-      const r = core.tryUltimate(kL, kR, gap, now, canUse);
-      if (r) { out = r; break; }
+      const L = mk('L', upL), R = mk('R', upR);
+      const lUp = (L.noseY - (L.noseY - upL)) / SH;      // = upL / SH
+      const rUp = opts.oneHand ? -0.30 : upL / SH;
+      const r = core.tryUltimate(L.k, R.k, upL / SH, rUp, now, canUse);
+      if (r) { out = { r, ms }; break; }
     }
     return out;
   }
 
   let c = PunchCore.createPunchCore();
-  const ult = throwUlt(c, {});
-  ck('양손을 모았다 밀면 필살기가 나간다', !!ult, ult ? ult.action : '미발동');
-  ck('액션 이름이 ENERGY_WAVE', ult && ult.action === PunchCore.ULTIMATE, ult ? ult.action : '-');
+  const ult = holdUlt(c, {});
+  ck('양손을 머리 위로 들면 필살기가 나간다', !!ult, ult ? ult.r.action : '미발동');
+  ck('액션 이름이 ENERGY_WAVE', ult && ult.r.action === PunchCore.ULTIMATE);
+  ck('유지 시간 만큼 기다린 뒤 나간다', ult && ult.ms >= TUNE.ULT_HOLD_MS - 40,
+     ult ? `${ult.ms | 0}ms (기준 ${TUNE.ULT_HOLD_MS})` : '-');
 
   c = PunchCore.createPunchCore();
-  ck('게이지가 안 찼으면 발동하지 않는다',
-     !throwUlt(c, { canUse: false }));
+  ck('게이지가 안 찼으면 발동하지 않는다', !holdUlt(c, { canUse: false }));
 
   c = PunchCore.createPunchCore();
-  ck('손을 모으지 않으면(벌린 채) 발동하지 않는다',
-     !throwUlt(c, { gapN: 1.20 }));
+  ck('한 손만 들면 발동하지 않는다', !holdUlt(c, { oneHand: true }));
 
   c = PunchCore.createPunchCore();
-  ck('모으는 시간이 짧으면 장전되지 않는다',
-     !throwUlt(c, { gatherMs: 90 }));
+  ck('손이 코 아래면(가드 자세) 발동하지 않는다', !holdUlt(c, { upN: -0.20 }));
 
   c = PunchCore.createPunchCore();
-  ck('한 손만 밀면 발동하지 않는다 (그건 펀치다)',
-     !throwUlt(c, { pushBoth: false }));
+  ck('머리를 감싸면(팔이 접힘) 발동하지 않는다', !holdUlt(c, { reachN: 0.45 }));
+
+  c = PunchCore.createPunchCore();
+  ck('잠깐 들었다 내리면 발동하지 않는다', !holdUlt(c, { holdMs: 200 }));
+
+  // 충전 진행도
+  c = PunchCore.createPunchCore();
+  ck('자세를 잡기 전 충전은 0', c.ultCharge(1000) === 0);
+  holdUlt(c, { t0: 5000, holdMs: 150 });
+  ck('자세를 잡으면 충전이 올라간다', c.ultCharge(5150) > 0.2 && c.ultCharge(5150) < 1,
+     c.ultCharge(5150).toFixed(2));
 
   // 쿨다운
   c = PunchCore.createPunchCore();
-  ck('첫 필살기 발동', !!throwUlt(c, { t0: 40000 }));
-  ck('쿨다운 안에는 다시 안 나간다', !throwUlt(c, { t0: 40300 }));
-  ck('쿨다운 후에는 다시 나간다', !!throwUlt(c, { t0: 42500 }));
+  ck('첫 필살기 발동', !!holdUlt(c, { t0: 40000 }));
+  ck('쿨다운 안에는 다시 안 나간다', !holdUlt(c, { t0: 40500, holdMs: 600 }));
+  ck('쿨다운 후에는 다시 나간다', !!holdUlt(c, { t0: 43000 }));
 
-  // 장전 상태 확인
+  // 펀치와 겹치지 않는가
   c = PunchCore.createPunchCore();
-  ck('장전 전에는 isUltArmed 가 false', c.isUltArmed(50000) === false);
-
-  // 필살기가 나가면 펀치 쿨다운도 걸려 곧바로 펀치가 겹치지 않는다
-  c = PunchCore.createPunchCore();
-  const u2 = throwUlt(c, { t0: 60000 });
+  const u2 = holdUlt(c, { t0: 60000 });
   ck('필살기 직후에는 펀치가 겹쳐 나가지 않는다',
      !!u2 && c.arms.L.lastPunch === c.getLastPunchAny());
 }

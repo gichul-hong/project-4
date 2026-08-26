@@ -108,8 +108,19 @@ const ck = (n, c, x) => {
   // 1인칭 팔 — 어깨/팔꿈치/글러브가 이어져 있는가
   const armInfo = await f.evaluate(`(() => ({
     hasArms: typeof myArms === 'object' && !!myArms.L && !!myArms.R,
-    upperVisible: myArms.L.upper.visible && myArms.R.upper.visible,
-    foreVisible: myArms.L.fore.visible && myArms.R.fore.visible,
+    hasPose: !!latestPose,
+    // 포즈가 없으면 팔을 숨기는 것이 정상이다 (안 그러면 화면을 가로질러 늘어난다).
+    // 규칙 자체를 확인한다 — 헤드리스에는 진짜 포즈가 없다.
+    hiddenWithoutPose: !latestPose && !myArms.L.upper.visible && !myArms.R.upper.visible,
+    // 포즈가 있다고 가정하고 한 프레임 돌리면 다시 보여야 한다
+    shownWithPose: (() => {
+      const save = latestPose;
+      latestPose = new Array(33).fill({ x: 0.5, y: 0.5, z: 0, visibility: 1 });
+      animateFrame(performance.now());
+      const v = myArms.L.upper.visible && myArms.R.fore.visible && myLeftGlove.visible;
+      latestPose = save;
+      return v;
+    })(),
     inRig: myArms.L.upper.parent === cameraRig && myArms.R.fore.parent === cameraRig,
     // 팔꿈치를 크게 움직이면 상완 길이가 따라 바뀌어야 한다 (실제로 이어져 있다는 증거)
     lenTest: (() => {
@@ -121,7 +132,10 @@ const ck = (n, c, x) => {
     })()
   }))()`);
   ck('1인칭 팔 관절이 만들어졌다', armInfo.hasArms);
-  ck('상완/전완이 보인다', armInfo.upperVisible && armInfo.foreVisible);
+  ck('포즈가 없으면 팔을 숨긴다 (화면을 가로질러 늘어나지 않게)',
+     armInfo.hasPose ? true : armInfo.hiddenWithoutPose,
+     armInfo.hasPose ? '포즈 있음' : '숨김 확인');
+  ck('포즈가 들어오면 팔이 다시 보인다', armInfo.shownWithPose === true);
   ck('카메라 리그에 붙어 있다', armInfo.inRig);
   ck('팔꿈치를 움직이면 뼈 길이가 따라온다', armInfo.lenTest);
 
