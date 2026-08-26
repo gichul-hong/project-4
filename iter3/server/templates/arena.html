@@ -8,13 +8,14 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <!-- v를 올리면 브라우저 캐시를 무시하고 새로 받는다 (포즈 로직 수정 시 필수) -->
-  <script src="/static/humanoid.js?v=4"></script>
+  <script src="/static/humanoid.js?v=6"></script>
   <script src="/static/effects.js?v=2"></script>
   <!-- Face Mesh 라이브러리 — host 는 얼굴을 "촬영"하지는 않지만 FACEMESH_TESSELATION
        (얼굴 토폴로지)이 있어야 3D 얼굴 메쉬를 만들 수 있다. 이게 없으면 얼굴이 통째로 안 뜬다.
        FaceMesh 인스턴스를 만들지 않으므로 무거운 WASM 은 받지 않는다. -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script src="/static/face3d.js?v=3"></script>
+  <script src="/static/face3d.js?v=5"></script>
+  <script src="/static/sound.js?v=1"></script>
   <style>
     :root {
       --bg: #07080d;
@@ -97,6 +98,12 @@
       transition: width 0.25s ease-out;
       box-shadow: 0 0 10px var(--f-color);
     }
+    /* 분노 게이지 — HP 바 아래 얇은 줄. 가득 차면 맥박친다. */
+    .rage-bg { width: 100%; height: 5px; margin-top: 3px; border-radius: 3px;
+               background: rgba(255,255,255,0.08); overflow: hidden; }
+    .rage-fill { height: 100%; width: 0%; border-radius: 3px;
+                 background: linear-gradient(90deg, #ff5a10, #ffd23a); transition: width 0.2s; }
+    .fighter-card.rage-full .rage-bg { box-shadow: 0 0 12px #ffd23a; }
     .action-badge {
       font-family: var(--mono);
       font-size: 11px;
@@ -171,21 +178,25 @@
     <div class="fighter-card" id="card-client_1" style="--f-color: var(--red);">
       <div class="fighter-head"><span>🥊 User 1 (Red)</span><span id="hp-text-client_1">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_1"></div></div>
+      <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_1"></div></div>
       <div class="action-badge"><span>Action:</span><b id="act-client_1">IDLE</b></div>
     </div>
     <div class="fighter-card" id="card-client_2" style="--f-color: var(--cyan);">
       <div class="fighter-head"><span>🥊 User 2 (Cyan)</span><span id="hp-text-client_2">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_2"></div></div>
+      <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_2"></div></div>
       <div class="action-badge"><span>Action:</span><b id="act-client_2">IDLE</b></div>
     </div>
     <div class="fighter-card" id="card-client_3" style="--f-color: var(--gold);">
       <div class="fighter-head"><span>⚡ User 3 (Gold)</span><span id="hp-text-client_3">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_3"></div></div>
+      <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_3"></div></div>
       <div class="action-badge"><span>Action:</span><b id="act-client_3">IDLE</b></div>
     </div>
     <div class="fighter-card" id="card-client_4" style="--f-color: var(--green);">
       <div class="fighter-head"><span>🥊 User 4 (Green)</span><span id="hp-text-client_4">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_4"></div></div>
+      <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_4"></div></div>
       <div class="action-badge"><span>Action:</span><b id="act-client_4">IDLE</b></div>
     </div>
   </div>
@@ -348,53 +359,11 @@
       fighterMeshes[cid] = h;
     });
 
-    // --- Web Audio 사운드 합성기 (별도 오디오 파일 없이 실시간 음향 재생) ---
-    let actx = null;
-    function ensureAudio() {
-      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
-      if (actx.state === "suspended") actx.resume();
-      return actx;
-    }
-    function playThud(freq = 150) {
-      try {
-        const c = ensureAudio(), t = c.currentTime;
-        const osc = c.createOscillator(), gain = c.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, t);
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.4, t + 0.12);
-        gain.gain.setValueAtTime(0.8, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-        osc.connect(gain).connect(c.destination);
-        osc.start(t); osc.stop(t + 0.2);
-      } catch(e) {}
-    }
-    let whooshBuffer = null;
-    function playWhoosh() {
-      try {
-        const c = ensureAudio(), t = c.currentTime;
-        if (!whooshBuffer) {
-          const sr = c.sampleRate;
-          whooshBuffer = c.createBuffer(1, sr * 0.15, sr);
-          const data = whooshBuffer.getChannelData(0);
-          for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-        }
-        const src = c.createBufferSource(); src.buffer = whooshBuffer;
-        const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1200;
-        const g = c.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-        src.connect(bp).connect(g).connect(c.destination);
-        src.start(t);
-      } catch(e) {}
-    }
-    function playBell() {
-      try {
-        const c = ensureAudio(), t = c.currentTime;
-        const osc = c.createOscillator(), gain = c.createGain();
-        osc.type = "square"; osc.frequency.setValueAtTime(880, t);
-        gain.gain.setValueAtTime(0.4, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-        osc.connect(gain).connect(c.destination);
-        osc.start(t); osc.stop(t + 0.6);
-      } catch(e) {}
-    }
+    // --- 전투 음향 (static/sound.js — 1인칭 뷰와 같은 모듈) ---
+    // 데미지에 따라 낮이·길이·크기가 달라지는 3겹 합성음. 오디오 파일 의존이 없다.
+    const snd = window.createSound();
+    ['click', 'keydown', 'touchstart'].forEach(ev =>
+      window.addEventListener(ev, () => snd.ensure(), { passive: true }));
 
     // --- 경기 타이머 및 통계 관리 ---
     // 제한 시간 없음 — 마지막 1인이 남을 때까지 싸운다.
@@ -414,7 +383,7 @@
       matchElapsed = 0;
       matchOver = false;
       renderClock();
-      if (playAudio) playBell();
+      if (playAudio) snd.bell();
       matchTimer = setInterval(() => { matchElapsed++; renderClock(); }, 1000);
     }
     startMatchClock(false);
@@ -429,7 +398,8 @@
     }
 
     function declareWinner(reason, winnerId) {
-      playBell();
+      snd.bell();
+      snd.victory();
       let bestFighter, maxHp = -1;
       if (winnerId && fighterConfigs[winnerId]) {
         bestFighter = fighterConfigs[winnerId].name || winnerId;
@@ -573,6 +543,14 @@
           // HP 가 떨어질수록 지친 표정 + 코피
           const kf = koMesh && koMesh.getFace();
           if (kf) kf.setHp(f.hp);
+          // 분노 게이지 — 카드 막대 + 아바타 불꽃 오라
+          if (f.rage !== undefined) {
+            if (koMesh) koMesh.setRage(f.rage);
+            const rb = document.getElementById(`rage-bar-${cid}`);
+            if (rb) rb.style.width = Math.max(0, Math.min(100, f.rage)) + '%';
+            const rc = document.getElementById(`card-${cid}`);
+            if (rc) rc.classList.toggle('rage-full', f.rage >= 99.5);
+          }
           const card = document.getElementById(`card-${cid}`);
           if (card) card.classList.toggle('ko', isKO);
           // K.O. 연출은 쓰러지는 순간 한 번만 재생 (매 패킷 재생 방지)
@@ -582,7 +560,7 @@
               const kp = koMesh.group.position;
               fx.spawnKO(new THREE.Vector3(kp.x, 5.2, kp.z), fighterConfigs[cid].color);
             }
-            playBell();
+            snd.ko();
             addCombatLog(`<b style="color:#ff3366">☠️ ${fighterConfigs[cid].name} K.O.! 링에서 이탈</b>`);
           } else if (!isKO && koState[cid]) {
             koState[cid] = false;   // 라운드 리셋으로 부활
@@ -641,13 +619,13 @@
         const gw = new THREE.Vector3();
         mesh.rightGlove.getWorldPosition(gw);
         spawnPunchTrail(gw, fighterConfigs[cid].color);
-        playWhoosh();
+        snd.whoosh(data.velocity || 20);
         matchStats.punches++;
       } else if (action === 'LEFT_JAB' || action === 'LEFT_HOOK' || action === 'LEFT_UPPERCUT') {
         const gw = new THREE.Vector3();
         mesh.leftGlove.getWorldPosition(gw);
         spawnPunchTrail(gw, fighterConfigs[cid].color);
-        playWhoosh();
+        snd.whoosh(data.velocity || 20);
         matchStats.punches++;
       }
 
@@ -659,14 +637,23 @@
         shakeMag = hit.is_guard ? 0.6 : Math.min(2.6, 0.9 + hit.damage * 0.15);
         matchStats.hits++;
 
-        // 피격자 위치에 타격 이펙트 + 아바타 움찔 리액션
-        const tgt = fighterMeshes[hit.target_id];
-        if (tgt) {
+        // 필살기는 부채꼴 안의 모두를 때리므로 **모든** 피격자에게 연출을 준다
+        const ultimate = data.hits.some(x => x.ultimate);
+        data.hits.forEach(hh => {
+          const tgt = fighterMeshes[hh.target_id];
+          if (!tgt) return;
           const tp = tgt.group.position;
-          const atkColor = (fighterConfigs[hit.attacker_id] || {}).color || 0xffffff;
-          fx.spawnHit(new THREE.Vector3(tp.x, 4.6, tp.z), atkColor, hit.damage, hit.is_guard);
-          if (!hit.is_guard) tgt.hit(hit.damage);
-        }
+          const atkColor = (fighterConfigs[hh.attacker_id] || {}).color || 0xffffff;
+          if (hh.ultimate) {
+            // 필살기 — 불꽃색 대폭발
+            fx.spawnKO(new THREE.Vector3(tp.x, 4.8, tp.z), 0xff8a20);
+            fx.spawnHit(new THREE.Vector3(tp.x, 4.6, tp.z), 0xffd23a, hh.damage, hh.is_guard);
+          } else {
+            fx.spawnHit(new THREE.Vector3(tp.x, 4.6, tp.z), atkColor, hh.damage, hh.is_guard);
+          }
+          if (!hh.is_guard) tgt.hit(hh.damage);
+        });
+        if (ultimate) { snd.ultimate(); shakeDuration = 30; shakeMag = 3.4; }
         if (data.velocity) matchStats.speeds.push(data.velocity);
 
         // 통계 UI 갱신
@@ -678,11 +665,7 @@
         }
 
         // 사운드 재생
-        if (hit.is_guard) {
-          playWhoosh();
-        } else {
-          playThud(120);
-        }
+        snd.impact(hit.damage, hit.is_guard);
 
         const banner = document.getElementById('hit-banner');
         banner.innerText = hit.is_guard ? `🛡️ GUARD! DEFLECTED (-${hit.damage} HP)` : `💥 CRITICAL HIT! -${hit.damage} HP (${data.velocity ? data.velocity.toFixed(1) : '38'} km/h)`;

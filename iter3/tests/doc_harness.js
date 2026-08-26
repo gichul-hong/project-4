@@ -107,14 +107,25 @@ console.log('--- 데미지 표 (app.py) ---');
   // **실제로 발동 가능한 기술만** 센다 — ENERGY_WAVE 는 서버에 규격만 있고 감지 로직이 없어
   // 아무도 쓸 수 없으므로, 이걸 최강기로 잡으면 밸런스 주장이 엉뚱하게 실패한다.
   const bonus = Number(val(APP, /min\(velocity,\s*50\.0\)\s*\/\s*(\d+)/));
+  // 필살기는 제외한다 — 게이지를 가득 채워야(약 9대 맞아야) 한 번 쓸 수 있는 특수 기술이라
+  // "몇 대 버티는가"라는 일반 밸런스와 다른 축에 있다. 넣으면 "2대면 죽는다"가 되어버린다.
+  const ULT = 'ENERGY_WAVE';
   const usable = Object.entries(specs)
-    .filter(([k]) => CORE.includes(`'${k}'`) || CLIENT.includes(`"${k}"`))
+    .filter(([k]) => k !== ULT && (CORE.includes(`'${k}'`) || CLIENT.includes(`"${k}"`)))
     .map(([, v]) => v.dmg);
   const worst = Math.max(...usable);
   const worstHit = Math.floor(worst * (1 + 50 / bonus));
-  ck('"최소 10대는 버틴다" 주장이 수치와 맞는다', Math.floor(100 / worstHit) >= 10,
-     `최강 타격 ${worstHit} → ${Math.floor(100 / worstHit)}대`);
+  ck('"최소 10대는 버틴다" 주장이 수치와 맞는다 (필살기 제외)', Math.floor(100 / worstHit) >= 10,
+     `일반 최강 타격 ${worstHit} → ${Math.floor(100 / worstHit)}대`);
   ck('README 가 그 주장을 담고 있다', /최소 10대/.test(README));
+  // 필살기가 구현됐다면 문서도 그 사실과 위력을 밝혀야 한다
+  if (specs[ULT] && (CORE.includes(`'${ULT}'`) || CLIENT.includes(`"${ULT}"`))) {
+    ck('필살기가 구현되면 문서가 "미구현"이라고 하면 안 된다',
+       !/ENERGY_WAVE[\s\S]{0,80}(발동할 수 없|미구현)/.test(README));
+    ck('README 에 필살기 데미지가 있다', docHas(String(specs[ULT].dmg)),
+       `${specs[ULT].dmg}`);
+    ck('README 에 분노 게이지 설명이 있다', /분노|RAGE|게이지/.test(README));
+  }
 }
 
 console.log('');

@@ -95,6 +95,13 @@ async function open(url, { port = 9333, fakeMedia = true, settle = 6000 } = {}) 
       }
       return r.result.value;
     },
+    /** 페이지를 PNG 로 저장한다 (문서·발표용 캡처). */
+    async screenshot(filePath, opts) {
+      const r = await send('Page.captureScreenshot', Object.assign({ format: 'png' }, opts || {}));
+      if (!r || !r.data) return false;
+      require('fs').writeFileSync(filePath, Buffer.from(r.data, 'base64'));
+      return true;
+    },
     close() { try { ws.close(); } catch (e) {} proc.kill(); },
   };
 }

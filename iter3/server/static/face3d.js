@@ -134,6 +134,31 @@
   }
 
   /**
+   * FACEMESH_FACE_OVAL 에서 **순서 있는 테두리 루프**를 뽑는다.
+   * 간선 목록은 [a,b] 쌍이고 닫힌 고리를 이룬다(36개). 이어 붙여 정점 순서를 복원한다.
+   * 이 고리가 "얼굴이 끝나는 선"이고, 여기서 뒤통수를 만들어 붙인다.
+   */
+  let cachedOval = null;
+  function getFaceOval() {
+    if (cachedOval) return cachedOval;
+    const E = (typeof FACEMESH_FACE_OVAL !== 'undefined') ? FACEMESH_FACE_OVAL
+            : (window.FACEMESH_FACE_OVAL || null);
+    if (!E || !E.length) return null;
+    const next = new Map();
+    for (const e of E) next.set(e[0], e[1]);
+    const start = E[0][0];
+    const loop = [start];
+    let cur = start;
+    for (let i = 0; i < E.length + 4; i++) {
+      cur = next.get(cur);
+      if (cur === undefined || cur === start) break;
+      loop.push(cur);
+    }
+    cachedOval = (loop.length >= 8) ? loop : null;
+    return cachedOval;
+  }
+
+  /**
    * 랜드마크를 머리 크기에 맞게 정규화한다 (원점=얼굴 중심).
    *
    * **종횡비 보정이 핵심이다.** MediaPipe 정규화 좌표는 x를 이미지 *폭*으로,
@@ -204,6 +229,43 @@
   }
 
   /**
+   * 얼굴 텍스처에서 평균 피부톤을 뽑는다.
+   *
+   * 얼굴 메쉬만 씌우면 **두개골 구는 여전히 원래 색**이라, 얼굴 가장자리에서 색이 뚝 끊긴다.
+   * 그 경계선 때문에 "얼굴을 붙인 머리"가 아니라 "가면을 쓴 인형"으로 보인다.
+   * 머리·목·팔다리를 이 톤으로 맞추면 경계가 사라진다.
+   *
+   * 가운데(볼·코 주변)만 표본으로 쓴다 — 가장자리는 머리카락·배경이 섞여 톤을 흐린다.
+   * 너무 어둡거나(그림자) 너무 밝은(하이라이트) 픽셀도 뺀다.
+   */
+  function sampleSkinTone(image) {
+    try {
+      const W = image.naturalWidth || image.width;
+      const H = image.naturalHeight || image.height;
+      if (!W || !H) return null;
+      const c = document.createElement('canvas');
+      const N = 48;                       // 축소해서 읽는다 — 정밀도가 필요 없다
+      c.width = N; c.height = N;
+      const g = c.getContext('2d');
+      g.drawImage(image, 0, 0, N, N);
+      const d = g.getImageData(0, 0, N, N).data;
+      let r = 0, gg = 0, b = 0, n = 0;
+      for (let y = Math.floor(N * 0.30); y < N * 0.72; y++) {
+        for (let x = Math.floor(N * 0.28); x < N * 0.72; x++) {
+          const i = (y * N + x) * 4;
+          const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          if (lum < 28 || lum > 242) continue;      // 그림자·하이라이트 제외
+          r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++;
+        }
+      }
+      if (n < 40) return null;
+      return ((Math.round(r / n) << 16) | (Math.round(gg / n) << 8) | Math.round(b / n));
+    } catch (e) {
+      return null;    // 다른 출처 이미지 등으로 캔버스가 오염되면 읽을 수 없다
+    }
+  }
+
+  /**
    * 3D 얼굴 생성.
    * @param {Array}  opts.landmarks  Face Mesh 468 랜드마크 (x,y,z 정규화 좌표)
    * @param {Canvas|Image} opts.image  같은 프레임의 얼굴 사진 (텍스처)
@@ -257,21 +319,119 @@
       if (z > bounds.zMax) bounds.zMax = z;
     }
 
+    // ── 뒤통수를 만들어 닫힌 머리로 ──────────────────────────────────
+    //
+    // Face Mesh 는 얼굴 **앞면만** 덮는다. 그대로 쓰면 어느 각도에서 봐도 "판자를 붙인 것"이고,
+    // 옆·뒤에서는 뒤통수가 없어 속이 비어 보인다. 구를 뒤에 놓아 가려도 색과 형태가 끊긴다.
+    //
+    // 그래서 얼굴 테두리(FACE_OVAL 36점)에서 출발해 **뒤로 쓸어 넘겨 두개골을 만든다.**
+    // 테두리를 적도로 보고 뒤쪽 극점까지 위도를 나눠 링을 쌓으면 닫힌 반구가 된다.
+    // 테두리에서 시작하므로 이음매가 정확히 맞고, 사람마다 다른 얼굴 윤곽을 그대로 따라간다.
+    const oval = getFaceOval();
+    const RINGS = 7;                       // 적도 → 극점 사이 링 개수
+    const BACK_DEPTH = 1.05;               // 뒤통수 깊이 (테두리 반지름 대비)
+    const craniumPos = [];                 // 추가 정점 (x,y,z ...)
+    const craniumUV = [];
+    const craniumCol = [];
+    let craniumStart = lm.length;
+
+    if (oval) {
+      const n = oval.length;
+      // 테두리의 중심과 평균 z — 이 지점을 두개골의 중심으로 삼는다
+      let cx = 0, cy = 0, cz = 0;
+      for (const idx of oval) {
+        cx += basePos[idx * 3]; cy += basePos[idx * 3 + 1]; cz += basePos[idx * 3 + 2];
+      }
+      cx /= n; cy /= n; cz /= n;
+
+      // 얼굴 안쪽 평균 UV — 뒤통수 색을 여기로 수렴시킨다 (테두리 줄무늬 방지)
+      let midU = 0, midV = 0;
+      for (let i = 0; i < lm.length; i++) { midU += uv[i * 2]; midV += uv[i * 2 + 1]; }
+      midU /= lm.length; midV /= lm.length;
+
+      // 링별 정점 생성. t=0 은 테두리(이미 존재), t=1 은 뒤쪽 극점.
+      for (let r = 1; r <= RINGS; r++) {
+        const t = r / RINGS;
+        // 위도를 사인으로 나눠 극점 근처가 촘촘해지게 (구처럼 매끄럽다)
+        const shrink = Math.cos(t * Math.PI / 2);          // 1 → 0
+        const back = Math.sin(t * Math.PI / 2);            // 0 → 1
+        for (let i = 0; i < n; i++) {
+          const idx = oval[i];
+          const ox = basePos[idx * 3] - cx;
+          const oy = basePos[idx * 3 + 1] - cy;
+          const rad = Math.hypot(ox, oy);
+          craniumPos.push(
+            cx + ox * shrink,
+            cy + oy * shrink,
+            cz - back * rad * BACK_DEPTH
+          );
+          // UV: 이음매(t=0)에서는 테두리 픽셀을 그대로 쓰고, 뒤로 갈수록 **얼굴 안쪽 평균 색**
+          // 으로 수렴시킨다. 테두리 UV 를 그대로 늘이면 윤곽선·머리카락 경계가 뒤통수에
+          // 줄무늬로 번진다. 안쪽으로 수렴시키면 균일한 피부색이 된다.
+          const w = Math.pow(t, 0.7);
+          craniumUV.push(uv[idx * 2] * (1 - w) + midU * w,
+                         uv[idx * 2 + 1] * (1 - w) + midV * w);
+          // 뒤로 갈수록 살짝 어둡게 — 빛이 덜 드는 자리라 이게 있어야 구형으로 읽힌다
+          const sh = 1 - t * 0.30;
+          craniumCol.push(sh, sh, sh);
+        }
+      }
+      // 마지막 극점 하나
+      craniumPos.push(cx, cy, cz - BACK_DEPTH * 0.92 *
+        (() => { let m = 0; for (let i = 0; i < n; i++) {
+          const ox = basePos[oval[i] * 3] - cx, oy = basePos[oval[i] * 3 + 1] - cy;
+          m += Math.hypot(ox, oy); } return m / n; })());
+      craniumUV.push(midU, midV);
+      craniumCol.push(0.66, 0.66, 0.66);
+    }
+
     const geo = new THREE.BufferGeometry();
     const livePos = new Float32Array(basePos);          // 변형이 적용된 실제 정점
-    geo.setAttribute('position', new THREE.BufferAttribute(livePos, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    // 얼굴 + 두개골을 하나의 버퍼로 합친다.
+    const totalV = lm.length + craniumPos.length / 3;
+    const allPos = new Float32Array(totalV * 3);
+    const allUV = new Float32Array(totalV * 2);
+    allPos.set(livePos, 0);
+    allUV.set(uv, 0);
+    for (let i = 0; i < craniumPos.length; i++) allPos[lm.length * 3 + i] = craniumPos[i];
+    for (let i = 0; i < craniumUV.length; i++) allUV[lm.length * 2 + i] = craniumUV[i];
+
+    // 두개골 삼각형 — 링과 링 사이를 사각형으로 잇고 둘로 쪼갠다
+    if (oval) {
+      const n = oval.length;
+      const ringIdx = (r, i) => craniumStart + (r - 1) * n + (i % n);   // r >= 1
+      const rimIdx = (i) => oval[i % n];
+      for (let i = 0; i < n; i++) {
+        // 테두리 ↔ 첫 링
+        index.push(rimIdx(i), ringIdx(1, i), rimIdx(i + 1));
+        index.push(rimIdx(i + 1), ringIdx(1, i), ringIdx(1, i + 1));
+        // 링 사이
+        for (let r = 1; r < RINGS; r++) {
+          index.push(ringIdx(r, i), ringIdx(r + 1, i), ringIdx(r, i + 1));
+          index.push(ringIdx(r, i + 1), ringIdx(r + 1, i), ringIdx(r + 1, i + 1));
+        }
+        // 마지막 링 ↔ 극점
+        const pole = craniumStart + RINGS * n;
+        index.push(ringIdx(RINGS, i), pole, ringIdx(RINGS, i + 1));
+      }
+    }
+
+    geo.setAttribute('position', new THREE.BufferAttribute(allPos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(allUV, 2));
     // 멍/홍조를 정점 색으로 누적한다 — 텍스처를 다시 그리지 않아도 손상이 보인다
-    const vcol = new Float32Array(lm.length * 3).fill(1);
+    const vcol = new Float32Array(totalV * 3).fill(1);
+    for (let i = 0; i < craniumCol.length; i++) vcol[lm.length * 3 + i] = craniumCol[i];
     geo.setAttribute('color', new THREE.BufferAttribute(vcol, 3));
     geo.setIndex(index);
     geo.computeVertexNormals();
 
     let tex = null;
+    let skinTone = null;
     if (opts.image) {
       tex = new THREE.CanvasTexture(opts.image);
       tex.flipY = true;
       tex.needsUpdate = true;
+      skinTone = sampleSkinTone(opts.image);
     }
 
     const mat = new THREE.MeshStandardMaterial({
@@ -280,7 +440,9 @@
       vertexColors: true,
       roughness: 0.72,
       metalness: 0.02,
-      side: THREE.DoubleSide,      // 뒤통수가 없는 반쪽 메쉬라 뒤에서 봐도 사라지지 않게
+      // 두개골까지 닫힌 메쉬이므로 앞면만 그리면 된다.
+      // DoubleSide 로 두면 안쪽 면이 비쳐 얼굴 안이 들여다보인다.
+      side: THREE.FrontSide,
       emissive: color,
       emissiveIntensity: 0.06,     // 파이터 색을 아주 옅게 얹어 아바타와 톤을 맞춘다
     });
@@ -396,7 +558,7 @@
 
     const _tmpNormal = new THREE.Vector3();
     function update(dt) {
-      const n = lm.length;
+      const n = lm.length;      // 앞쪽 얼굴 정점만 변형한다 — 두개골은 고정
       const pos = geo.attributes.position.array;
 
       // 표정 — 목표치로 부드럽게 수렴 (급변하면 표정이 튄다)
@@ -478,7 +640,20 @@
       blood.geometry.dispose();
     }
 
-    return { mesh, hit, setHp, update, dispose, state: S, bounds,
+    // 두개골까지 포함한 실제 바운딩 (배치·스케일 계산에 쓴다)
+    for (let i = 0; i < totalV; i++) {
+      const x = allPos[i * 3], y = allPos[i * 3 + 1], z = allPos[i * 3 + 2];
+      if (x < bounds.xMin) bounds.xMin = x;
+      if (x > bounds.xMax) bounds.xMax = x;
+      if (y < bounds.yMin) bounds.yMin = y;
+      if (y > bounds.yMax) bounds.yMax = y;
+      if (z < bounds.zMin) bounds.zMin = z;
+      if (z > bounds.zMax) bounds.zMax = z;
+    }
+
+    return { mesh, hit, setHp, update, dispose, state: S, bounds, skinTone,
+             // 뒤통수까지 닫힌 머리인가 — 호출부가 구 머리를 숨길지 판단한다
+             isFullHead: !!oval,
              triangleCount: index.length / 3 };
   };
 

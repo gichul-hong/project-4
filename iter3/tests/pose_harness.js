@@ -97,6 +97,10 @@ console.log('\n--- 피격 리액션 (#4) ---');
 
 console.log('');
 console.log('--- 3D 얼굴 배치: 두개골 구에 파묻히지 않는가 ---');
+// 머리 반지름은 humanoid.js 에서 읽는다 — 비율을 바꿔도 테스트가 따라오도록
+const HEAD_R_EXPECTED = Number(
+  require('fs').readFileSync(require('path').join(__dirname, '../server/static/humanoid.js'), 'utf8')
+    .match(/const HEAD_R = ([\d.]+)/)[1]);
 {
   // 실제로 겪은 버그: 얼굴 메쉬를 구(반지름 1.3) 안쪽 z=0.62 에 두어
   // 얼굴 전체가 구에 파묻혀 host·1인칭 양쪽에서 아무것도 안 보였다.
@@ -135,18 +139,22 @@ console.log('--- 3D 얼굴 배치: 두개골 구에 파묻히지 않는가 ---')
                    xMin: -1.2, xMax: 1.2, yMin: -1.5, yMax: 1.5 };
 
   const h = window.createHumanoid(0xff3366);
+  // 얼굴을 씌우기 "전"의 머리 모양을 기억해 둔다 — 복귀 검사의 기준값이다.
+  // 1.0 을 기대값으로 박아 두면 기본 머리 비율을 바꿀 때마다 테스트가 깨진다.
+  const headScale0 = [h.head.scale.x, h.head.scale.y, h.head.scale.z];
   h.setFace(fakeFace(bounds, verts));
   h.update();
 
   const faceZ = h.getFace().mesh.position.z;
+  const fk = h.getFace().mesh.scale.x;          // 머리 크기에 맞춘 스케일
   const sx = h.head.scale.x, sy = h.head.scale.y, sz = h.head.scale.z;
-  const R = 1.3;
+  const R = HEAD_R_EXPECTED;
 
   // 두개골 타원체: (x/(R*sx))^2 + (y/(R*sy))^2 + (z/(R*sz))^2 = 1
   // 얼굴 정점을 머리 좌표계로 옮겨(z += faceZ) 전부 바깥(>1)인지 본다.
   let inside = 0, worst = Infinity;
   for (let i = 0; i < verts.length; i += 3) {
-    const x = verts[i], y = verts[i + 1], z = verts[i + 2] + faceZ;
+    const x = verts[i] * fk, y = verts[i + 1] * fk, z = verts[i + 2] * fk + faceZ;
     const e = (x / (R * sx)) ** 2 + (y / (R * sy)) ** 2 + (z / (R * sz)) ** 2;
     if (e < 1) inside++;
     if (e < worst) worst = e;
@@ -163,7 +171,11 @@ console.log('--- 3D 얼굴 배치: 두개골 구에 파묻히지 않는가 ---')
   // 얼굴을 떼면 원래 머리로 복귀
   h.setFace(null);
   h.update();
-  ck('얼굴을 떼면 원래 머리로 복귀', h.head.scale.x === 1 && h.visor.visible === true);
+  ck('얼굴을 떼면 원래 머리로 복귀',
+     Math.abs(h.head.scale.x - headScale0[0]) < 1e-6
+     && Math.abs(h.head.scale.z - headScale0[2]) < 1e-6
+     && h.visor.visible === true,
+     `scale ${h.head.scale.x} vs ${headScale0[0]}`);
 
   // 깊이가 다른 얼굴(납작한 얼굴)도 파묻히지 않는가
   const flatBounds = Object.assign({}, bounds, { zMin: -0.12, zMax: 0.18 });
@@ -173,9 +185,10 @@ console.log('--- 3D 얼굴 배치: 두개골 구에 파묻히지 않는가 ---')
   h2.setFace(fakeFace(flatBounds, flatVerts));
   h2.update();
   const fz2 = h2.getFace().mesh.position.z;
+  const fk2 = h2.getFace().mesh.scale.x;
   let inside2 = 0;
   for (let i = 0; i < flatVerts.length; i += 3) {
-    const x = flatVerts[i], y = flatVerts[i + 1], z = flatVerts[i + 2] + fz2;
+    const x = flatVerts[i] * fk2, y = flatVerts[i + 1] * fk2, z = flatVerts[i + 2] * fk2 + fz2;
     if ((x / (R * h2.head.scale.x)) ** 2 + (y / (R * h2.head.scale.y)) ** 2
       + (z / (R * h2.head.scale.z)) ** 2 < 1) inside2++;
   }
