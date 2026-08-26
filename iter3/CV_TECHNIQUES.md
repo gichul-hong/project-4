@@ -16,15 +16,18 @@
 | 01 | 분류 · 검색 · 이상탐지 | — | ❌ | — |
 | 02 | 객체 검출 · 추적 | — | ❌ | — |
 | 03 | 픽셀 분할 | (계획됨: SelfieSegmentation) | ❌ | `TODO.md` #6 |
-| **04** | **사람 자세 · 3D 모션** | **MediaPipe Hands + BiLSTM 시계열 분류** | ✅ / ⚠️ | `fighter_client.html`, `motion_learning/` |
-| **05** | **깊이 · 카메라 · 3D** | **MediaPipe Hands `z` 좌표 → 3D 펀치 분류** | ✅ | `fighter_client.html` |
+| **04** | **사람 자세 · 3D 모션** | **MediaPipe Pose 상체 7노드 + BiLSTM 시계열 분류** | ✅ / ⚠️ | `fighter_client.html`, `motion_learning/` |
+| **05** | **깊이 · 카메라 · 3D** | **`poseWorldLandmarks` 미터 단위 3D 팔 운동학** | ✅ | `fighter_client.html` |
 | 06 | 생성 · 편집 | — | ❌ | — |
 | 07 | 비전–언어 · OCR | — | ❌ | — |
 | **08** | **이미지 복원 · 화질 개선** | **CSS 필터 · Sobel 계열 오버레이 (부분)** | ✅ (경량 버전) | `fighter_client.html` (네온 글로우) |
 
 **추가로 프로젝트 자체 CV 기법**:
 
-- 손목 중점 기반 lean(기울기) 추적 → 아바타 이동 (경량 pose 추정 대체)
+- **어깨폭 정규화 자세 특징** — 어깨선 roll(기울기), 얼굴·주먹의 수직 편차, 주먹의 좌우 편차를
+  모두 어깨폭 단위로 표현하여 카메라 거리·체형·해상도에 불변인 지표를 구성
+- **중립 자세 캘리브레이션 + 느린 드리프트 적응** — 개인차 흡수
+- **히스테리시스 + 프레임 투표 상태 머신** — 오검출/떨림 억제
 - MediaPipe 랜드마크 기반 제스처 규칙 판정 (DUAL_GUARD)
 - `TextureLoader` + `CylinderGeometry` 곡면 backdrop (배경 합성 · AR 성격)
 
@@ -36,22 +39,40 @@
 
 레퍼런스가 소개한 3개 카드 중 **첫 번째 카드(MediaPipe Pose Landmarker)와 정확히 같은 계열**을 사용 중이며, 별도로 **BiLSTM으로 시계열 분류 파이프라인**까지 자체 구축했습니다.
 
-#### (a) MediaPipe Hands — ✅ 실시간 사용 중
+#### (a) MediaPipe Pose — 상체 7노드 서브셋 ✅ 실시간 사용 중
 
-레퍼런스는 Pose Landmarker(33 body landmarks)를 예시로 들었지만, 본 프로젝트는 동일한 MediaPipe 스택의 **Hands 태스크(21×2 hand landmarks)** 를 채택.
+레퍼런스 첫 번째 카드(**Pose Landmarker, 33 body landmarks**)와 정확히 같은 계열을 사용하되,
+33개를 전부 쓰지 않고 **판정에 실제로 기여하는 7개만 선택**하는 것이 본 프로젝트의 설계 포인트입니다.
 
-- CDN: `@mediapipe/hands`, `@mediapipe/drawing_utils`, `@mediapipe/camera_utils`
-  → `fighter_client.html:9-11`
-- 구성: `maxNumHands: 2, modelComplexity: 0, minDetectionConfidence: 0.4`
-  → `fighter_client.html:263-264` (경량 모델로 FPS 확보)
-- 실행 주기: **~80ms(12fps)** 로 throttle하여 GPU 부하 최소화
-  → `fighter_client.html:380` (`if (now - lastHandT < 80) return;`)
-- 출력 활용:
-  - `landmark[0]` (손목), `landmark[8]` (검지 끝) → 펀치 속도·깊이 계산
-  - 21개 landmark 전체 → **엄지/검지/중지 폄 여부**로 DUAL_GUARD 제스처 판정
-  - **양손 손목 중점**(pose 대체) → 화면 대비 lean(x, y) 계산으로 아바타 이동
+- CDN: `@mediapipe/pose`, `@mediapipe/camera_utils`
+- 구성: `modelComplexity: 1, smoothLandmarks: true, minDetection/TrackingConfidence: 0.6`
+- 실행 주기: **~66ms(15fps)** throttle. 렌더(Three.js)는 별도 rAF에서 60fps 유지.
+- 사용 노드: `0`(코) · `11,12`(어깨) · `13,14`(팔꿈치) · `15,16`(손목)
 
-**왜 Pose가 아니라 Hands인가**: 초기에는 Pose를 병용했으나 두 모델 동시 실행 시 FPS 30 이하로 떨어져, 손목만으로 상체 기울임을 근사하는 방식으로 전환. `DEVLOG.md:39` 참조.
+| 노드 | 판정 기여 |
+|---|---|
+| 어깨 11·12 | roll(좌/우 기울임) · **모든 거리의 길이 단위(어깨폭)** |
+| 코 0 | 앞/뒤 기울임의 주 신호 |
+| 손목 15·16 | 펀치 속도 · 회전 제스처 · 가드 |
+| 팔꿈치 13·14 | 펀치 종류(3D 팔 접힘 각도) |
+
+**왜 Hands에서 Pose로 바꿨는가** (2026-08-25):
+이전 버전은 Hands(21×2=42노드)를 쓰면서도 실제로는 검지 끝·손목 2개만 소비했고,
+이동은 "양손 손목 중점의 화면상 위치"라는 **대용 신호**로 근사했습니다.
+그 결과 (1) 손만 움직여도 아바타가 이동하고, (2) 몸을 실제로 어떻게 쓰는지와 무관하며,
+(3) 노드 42개를 추적하는 비용이 정보량에 비해 과했습니다.
+Pose 7노드로 바꾸면서 **추적 노드는 42 → 7로 줄이고, 인식 대상은 손가락 → 상체 전체로 넓혔습니다.**
+
+**정규화 설계**: 모든 자세 지표를 어깨폭으로 나누고 중립 자세 대비 편차로 계산 →
+카메라 거리·체형·해상도가 달라도 동일한 임계값이 유효합니다.
+
+```
+roll  = atan2(왼어깨.y − 오른어깨.y, |Δx|)                          [deg]
+pitch = 0.45·Δ(얼굴−어깨선) + 0.25·Δ(주먹−어깨선) + 0.30·Δ(어깨선 절대높이)   [어깨폭 단위]
+shift = (왼손목 편차 + 오른손목 편차) / 2                            [어깨폭 단위]
+```
+
+**오검출 억제 3단**: EMA 평활(α=0.35) → 임계값 히스테리시스(진입/해제 분리) → 연속 3프레임 투표.
 
 #### (b) 자체 BiLSTM 시퀀스 분류 — ⚠️ 학습 완료, 런타임 미연동
 
@@ -68,32 +89,40 @@
 
 ---
 
-### 05. 깊이 · 카메라 · 3D — MediaPipe `z` 좌표 활용 ✅
+### 05. 깊이 · 카메라 · 3D — `poseWorldLandmarks` 미터 단위 3D ✅
 
-레퍼런스 05 분야는 Depth Anything 3, VGGT-Ω, TripoSR 같은 **별도 모델로 depth를 추정**하는 카드들입니다. 우리 프로젝트는 별도 모델 없이 **MediaPipe Hands가 이미 내놓는 `landmark.z` (metric-scale은 아니지만 상대적 깊이) 를 활용**하여 유사한 효과를 얻습니다.
+레퍼런스 05 분야는 Depth Anything 3, VGGT-Ω, TripoSR 같은 **별도 모델로 depth를 추정**하는 카드들입니다.
+우리 프로젝트는 별도 모델 없이, **이미 실행 중인 Pose 추정기가 부산물로 내놓는 3D world 랜드마크**
+(골반 중심 원점, **미터 단위**)를 행위 인식에 재활용합니다.
 
-- **3D 속도 벡터 계산**
+**왜 3D가 반드시 필요한가 — foreshortening**
+
+정면 펀치는 팔이 카메라 축 방향으로 뻗기 때문에 **화면상에서는 오히려 팔이 짧아 보입니다.**
+따라서 2D 이미지 좌표의 어깨→손목 거리로 "팔을 뻗었는지"를 판정하면 정면 잽에서 **거리가 감소**하여
+판정에 실패합니다. (개발 중 헤드리스 테스트로 실제 재현 → 3D 전환의 직접적 근거)
+
+| 구간 | 2D 이미지 거리 | 3D world 거리 |
+|---|---|---|
+| 가드 (팔 접음) | 0.86 (어깨폭 단위) | 0.21 m |
+| 정면 잽 최대 신전 | **0.35 ↓ 감소** | **0.58 m ↑ 증가** |
+
+- **팔 운동학** (모두 미터/미터per초):
   ```
-  vel3D = sqrt(dx² + dy² + (dz*50)²) * 1.5 / dt * 3.6
+  reach  = |손목 − 어깨|                 (팔 뻗음)
+  dReach = Δreach / Δt                   (뻗는 중인지 회수 중인지)
+  speed  = |Δ손목| / Δt                  (손목 속도)
+  elbow  = ∠(어깨, 팔꿈치, 손목)          (3D 내각)
   ```
-  Z축 변화량에 50배 가중을 주어 XY 스케일과 정규화.
-  → `fighter_client.html:290-292`
+- **발동 조건**: `speed > 2.0 m/s` ∧ `dReach > 0.7 m/s` ∧ `reach > 0.38 m` ∧ 쿨다운.
+  `dReach` 조건이 회수 동작·잔떨림·몸 전체 이동을 걸러내는 핵심입니다.
+- **종류 분류**: 손목 속도 벡터의 방향비 + 3D 팔꿈치 각도
+  (위로 우세 → UPPERCUT, 옆으로 우세 → HOOK, 그 외 → STRAIGHT).
+- **폴백 경로**: `poseWorldLandmarks`가 없는 환경에서는 이미지 좌표를 어깨폭 기준으로 미터 환산하여
+  동일한 코드 경로로 처리합니다.
+- **HUD**: 손목 속도를 **실제 km/h**로 표시 (기존에는 정규화 좌표에 임의 계수를 곱한 값이었습니다).
 
-- **깊이 확장(depth extension)**: `wristZ - indexTipZ`
-  양수 = 팔이 카메라 앞쪽으로 뻗음. 이 값의 시간 미분 = `depthVel`.
-  → `fighter_client.html:281, 293`
-
-- **3단계 펀치 분류**: Z변화 크기에 따라 크로스/훅 · 잽/어퍼컷 · 기본으로 분기.
-  2D 좌표만 쓸 때는 구분 불가능한 펀치 유형을 저비용으로 분류.
-  → `fighter_client.html:305-315`
-
-- **글러브 3D 위치 반영**: `gloveZ = -3.5 + depthExt * 8`로 팔을 뻗을수록 글러브가 카메라 앞으로 이동.
-  → `fighter_client.html:319`
-
-- **HUD 표시**: `V3D`(3D 속도), `Z-ext`, `Z-vel`을 실시간 표시.
-  → `fighter_client.html:549`
-
-**레퍼런스와의 차별점**: 별도 depth 모델을 부르지 않고, 이미 실행 중인 hand tracker의 부산물로 얻은 z를 **행위 인식(action recognition)** 에 재활용한다는 점.
+**레퍼런스와의 차별점**: 별도 depth 모델을 부르지 않고, pose estimator의 3D 출력을
+**행위 인식(action recognition)** 에 재활용한다는 점.
 
 ---
 
@@ -146,8 +175,18 @@
 
 ## 발표 시 강조 문구 (Show Numbers)
 
-- **실시간 성능**: MediaPipe Hands 12fps(~80ms/frame) + Three.js 60fps 렌더 병렬 실행
+- **노드 효율**: 추적 노드 **42개(Hands 21×2) → 7개(Pose 상체)** 로 축소하면서
+  인식 범위는 손가락 → **상체 전체 모션**으로 확대
+- **실시간 성능**: MediaPipe Pose 15fps(~66ms/frame) + Three.js 60fps 렌더 병렬 실행
+- **스케일 불변 설계**: 모든 지표를 어깨폭 단위 + 중립 대비 편차로 정규화
+  → 카메라 거리·체형·해상도가 달라도 동일 임계값 적용
+- **3D의 필요성 (정량)**: 정면 잽에서 2D 어깨→손목 거리는 0.86 → 0.35로 **감소**하지만,
+  3D world 거리는 0.21 m → 0.58 m로 **증가** (foreshortening). 2D만으로는 정면 펀치 판정 불가.
+- **오검출 억제 3단**: EMA(α=0.35) → 히스테리시스(진입/해제 분리) → 연속 3프레임 투표
+- **검증**: 브라우저 전역을 스텁하고 실제 클라이언트 스크립트를 로드하는 헤드리스 하니스로
+  **28개 항목 통과** (방향 부호, 이동/회전 독립성, 펀치 3종 분류, 오검출 억제 2종, 가드)
 - **모델 정확도**: 룰 기반 33.3% → BiLSTM 100% (합성 데이터, `eval_results.json`)
-- **입력 차원**: 손 하나당 21 landmarks × 3좌표(x, y, z) = 63차원 × 30프레임 시퀀스
-- **분류 클래스**: 6 (LEFT_JAB / RIGHT_CROSS / LEFT_HOOK / RIGHT_UPPERCUT / DUAL_GUARD / IDLE)
-- **CV 파이프라인 스택**: MediaPipe (감지) → 3D 벡터화(자체) → 휴리스틱 or BiLSTM(분류) → Three.js 리깅(시각화)
+  ※ BiLSTM은 손 랜드마크 63차원 입력 기준이라 현재 7노드 파이프라인과 입력 규격이 다릅니다(런타임 미연동).
+- **분류 클래스**: 펀치 6종(좌/우 × JAB·CROSS / HOOK / UPPERCUT) + DUAL_GUARD + IDLE
+- **CV 파이프라인 스택**: MediaPipe Pose(감지) → 어깨폭 정규화 특징 + 미터 단위 팔 운동학(자체)
+  → 히스테리시스·투표 상태 머신(분류) → Three.js 리깅(시각화)

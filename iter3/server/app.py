@@ -31,6 +31,10 @@ class ArenaGameManager:
         self._last_collision_time: float = 0.0
         self._collision_interval: float = 0.05  # 50ms 간격으로 충돌 체크 (초당 20회)
         self._last_positions: Dict[str, tuple] = {}  # 마지막 broadcast한 위치 캐시
+        self._last_state_sync: float = 0.0           # fighters 전체 상태를 마지막으로 실은 시각
+        # 3D 복원 얼굴 { client_id: {"lm": [...], "tex": "data:image/jpeg;base64,..."} }
+        # 접속이 끊겨도 유지한다 — 재접속할 때마다 다시 촬영하게 만들 이유가 없다.
+        self.faces: Dict[str, dict] = {}
         self.reset_game()
 
     def reset_game(self):
@@ -40,6 +44,14 @@ class ArenaGameManager:
             "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.1416},
             "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0},
         }
+
+    def should_sync_state(self, interval: float = 0.5) -> bool:
+        """마지막 전체 상태 브로드캐스트로부터 interval 초가 지났으면 True."""
+        now = time.monotonic()
+        if now - self._last_state_sync < interval:
+            return False
+        self._last_state_sync = now
+        return True
 
     def enforce_collision_throttled(self):
         """충돌 체크를 일정 간격(50ms)으로만 실행하여 CPU 부하 감소."""
@@ -58,6 +70,10 @@ class ArenaGameManager:
                 a, b = ids[i], ids[j]
                 fa = self.fighters[a]
                 fb = self.fighters[b]
+                # KO된 파이터는 링에서 사라지므로 콜라이더에서도 빠진다.
+                # 그러지 않으면 보이지 않는 벽이 남아 살아있는 파이터가 막힌다.
+                if fa.get("hp", 0) <= 0 or fb.get("hp", 0) <= 0:
+                    continue
                 ax, az = fa.get("world_x", fa.get("pos", [0, 0, 0])[0]), fa.get("world_z", fa.get("pos", [0, 0, 0])[2])
                 bx, bz = fb.get("world_x", fb.get("pos", [0, 0, 0])[0]), fb.get("world_z", fb.get("pos", [0, 0, 0])[2])
                 dx, dz = ax - bx, az - bz
@@ -107,6 +123,18 @@ class ArenaGameManager:
         if client_id in self.fighters:
             self.fighters[client_id]["hp"] = 100 # 접속 시 HP 100 초기화!
         print(f"[+] Fighter connected: {client_id}")
+
+        # 이미 등록된 얼굴들을 새로 들어온 쪽에 몰아서 보낸다.
+        # 그러지 않으면 나중에 들어온 사람은 남들 얼굴을 영영 못 본다.
+        if self.faces:
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "face_bulk",
+                    "faces": self.faces,
+                }))
+            except Exception:
+                pass
+
         await self.broadcast({
             "type": "game_state",
             "event": "fighter_joined",
@@ -144,13 +172,19 @@ class ArenaGameManager:
             return None
 
         # (데미지, 최대사거리, dot 임계값)
+        #
+        # HP 100 기준 "최소 10대는 버틴다"를 만족하도록 잡은 값이다.
+        # 속도 보너스까지 최대로 받은 어퍼컷(가장 센 기술)이 정확히 10, 즉 10대가 상한이고
+        # 실제 대전에서 흔한 잽/스트레이트 위주면 15~20대가 오간다.
         attack_specs = {
-            "JAB_STRAIGHT":    (12, 10.0, 0.3),
-            "LEFT_JAB":        (12, 10.0, 0.3),
-            "RIGHT_CROSS":     (16, 10.0, 0.3),
-            "LEFT_HOOK":       (18, 10.0, 0.2),
-            "RIGHT_UPPERCUT":  (25,  8.0, 0.3),
-            "ENERGY_WAVE":     (40, 30.0, 0.3),
+            "JAB_STRAIGHT":    (5, 10.0, 0.3),
+            "LEFT_JAB":        (5, 10.0, 0.3),
+            "RIGHT_CROSS":     (6, 10.0, 0.3),
+            "LEFT_HOOK":       (7, 10.0, 0.2),
+            "RIGHT_HOOK":      (7, 10.0, 0.2),
+            "LEFT_UPPERCUT":   (8,  8.0, 0.3),
+            "RIGHT_UPPERCUT":  (8,  8.0, 0.3),
+            "ENERGY_WAVE":     (12, 30.0, 0.3),
         }
         spec = attack_specs.get(action)
         if not spec:
@@ -165,7 +199,8 @@ class ArenaGameManager:
             return None
         self.last_attack_times[attacker_id] = now
 
-        dmg = int(raw_dmg * (1.0 + min(velocity, 50.0) / 100.0))
+        # 속도 보너스 최대 +25% (이전 +50%). 빠른 펀치의 이점은 남기되 즉사 구간을 없앤다.
+        dmg = max(1, int(raw_dmg * (1.0 + min(velocity, 50.0) / 200.0)))
 
         att_x = attacker.get("world_x", attacker.get("pos", [0, 0, 0])[0])
         att_z = attacker.get("world_z", attacker.get("pos", [0, 0, 0])[2])
@@ -210,7 +245,8 @@ class ArenaGameManager:
                 "damage": actual_dmg,
                 "is_guard": is_guard,
                 "target_hp": fighter["hp"],
-                "distance": round(hit_dist, 1)
+                "distance": round(hit_dist, 1),
+                "ko": fighter["hp"] <= 0,
             })
             print(f"[HIT] {attacker_id}->{best_target_id} dmg={actual_dmg} hp={fighter['hp']}", flush=True)
             if fighter["hp"] == 0:
@@ -281,6 +317,22 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
+
+            # 3D 복원 얼굴 등록 — 캡처 시 1회만 온다 (수십 KB라 매 프레임 오는 패킷이 아니다)
+            if payload.get("type") == "face":
+                face = payload.get("face")
+                if isinstance(face, dict) and face.get("lm") and face.get("tex"):
+                    manager.faces[client_id] = face
+                    print(f"[FACE] {client_id} 얼굴 등록 "
+                          f"(랜드마크 {len(face['lm']) // 3}개, 텍스처 {len(face['tex']) // 1024}KB)",
+                          flush=True)
+                    await manager.broadcast({
+                        "type": "face_update",
+                        "client_id": client_id,
+                        "face": face,
+                    })
+                continue
+
             action = payload.get("action", "IDLE")
             velocity = payload.get("velocity", 0.0)
 
@@ -308,14 +360,20 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
             # 타격 이벤트 판정 (양손 액션 포함)
             hit_results = None
-            if action in ["JAB_STRAIGHT", "LEFT_JAB", "RIGHT_CROSS", "LEFT_HOOK", "RIGHT_UPPERCUT", "ENERGY_WAVE"]:
+            if action in ["JAB_STRAIGHT", "LEFT_JAB", "RIGHT_CROSS", "LEFT_HOOK", "RIGHT_HOOK",
+                          "LEFT_UPPERCUT", "RIGHT_UPPERCUT", "ENERGY_WAVE"]:
                 hit_results = manager.process_attack(client_id, action, velocity)
 
             payload["client_id"] = client_id
             payload["color"] = manager.fighters.get(client_id, {}).get("color", "#FFFFFF")
             payload["hits"] = hit_results
-            # fighters 전체 상태: 타격 시 또는 충돌 보정 시 포함
-            if hit_results or corrections:
+            # fighters 전체 상태: 타격/충돌 보정 시, 그리고 최소 0.5초마다 한 번은 반드시 포함.
+            #
+            # 예전에는 타격·보정이 있을 때만 보냈다. 그러면 아무도 안 때리는 동안 클라이언트는
+            # HP도 상대 위치도 갱신받지 못한다. K.O.된 뒤 아무도 안 때리면 "왜 안 움직이지"만
+            # 남고 사망 표시가 갱신되지 않는 상태가 된다. HUD의 HP 바·미니맵도 이 패킷에 의존한다.
+            # 4명분 상태라 크기가 작아 0.5초 주기로 보내도 대역폭에 영향이 없다.
+            if hit_results or corrections or manager.should_sync_state():
                 payload["fighters"] = manager.fighters
 
             # 위치/yaw 변경이 있거나 공격/타격이면 broadcast (idle 정지 상태만 스킵)
@@ -328,7 +386,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             last_pos = manager._last_positions.get(client_id)
             pos_changed = (curr_pos != last_pos)
 
-            if is_attack or hit_results or corrections or pos_changed:
+            # "fighters 를 실었다"면 반드시 내보내야 한다. 정지 상태에서 스킵해버리면
+            # 주기 동기화가 무의미해지고, 가만히 서 있는 클라이언트는 HP를 영원히 못 받는다.
+            if is_attack or hit_results or corrections or pos_changed or "fighters" in payload:
                 manager._last_positions[client_id] = curr_pos
                 await manager.broadcast(payload)
             else:

@@ -22,5 +22,5 @@ echo.
 echo 서버를 시작합니다... (종료: Ctrl+C)
 echo.
 
-"%PYTHON_EXE%" iter2\run_arena_server.py
+"%PYTHON_EXE%" "%~dp0run_arena_server.py"
 pause
