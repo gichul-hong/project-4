@@ -1,46 +1,107 @@
 {
   "tolerance_ms": 400,
   "ground_truth": 29,
-  "predicted": 49,
-  "tp": 14,
-  "fp": 35,
-  "fn": 15,
-  "precision": 0.2857,
-  "recall": 0.4828,
-  "f1": 0.359,
-  "kind_accuracy": 0.1429,
-  "side_accuracy": 0.4286,
-  "timing_error_ms_mean": 135.9,
+  "predicted": 25,
+  "tp": 10,
+  "fp": 15,
+  "fn": 19,
+  "precision": 0.4,
+  "recall": 0.3448,
+  "f1": 0.3704,
+  "kind_accuracy": 0.4,
+  "side_accuracy": 0.2,
+  "timing_error_ms_mean": 206.7,
   "timing_error_ms_max": 367,
   "confusion": {
-    "STRAIGHT->JAB": 2,
-    "HOOK->CROSS": 1,
-    "HOOK->HOOK": 2,
-    "UPPERCUT->JAB": 1,
-    "UPPERCUT->CROSS": 2,
-    "STRAIGHT->HOOK": 3,
-    "STRAIGHT->CROSS": 2,
-    "STRAIGHT->UPPERCUT": 1
+    "STRAIGHT->STRAIGHT": 4,
+    "STRAIGHT->HOOK": 2,
+    "STRAIGHT->UPPERCUT": 1,
+    "UPPERCUT->STRAIGHT": 2,
+    "HOOK->STRAIGHT": 1
   },
+  "matches": [
+    {
+      "pred_index": 1,
+      "pred_t_ms": 13133,
+      "label_t_ms": 13133,
+      "dt_ms": 0
+    },
+    {
+      "pred_index": 20,
+      "pred_t_ms": 76533,
+      "label_t_ms": 76500,
+      "dt_ms": 33
+    },
+    {
+      "pred_index": 22,
+      "pred_t_ms": 79000,
+      "label_t_ms": 78900,
+      "dt_ms": 100
+    },
+    {
+      "pred_index": 24,
+      "pred_t_ms": 81666,
+      "label_t_ms": 81800,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 23,
+      "pred_t_ms": 80266,
+      "label_t_ms": 80466,
+      "dt_ms": 200
+    },
+    {
+      "pred_index": 3,
+      "pred_t_ms": 16900,
+      "label_t_ms": 17200,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 11,
+      "pred_t_ms": 43200,
+      "label_t_ms": 43500,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 14,
+      "pred_t_ms": 45800,
+      "label_t_ms": 45500,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 5,
+      "pred_t_ms": 24833,
+      "label_t_ms": 24500,
+      "dt_ms": 333
+    },
+    {
+      "pred_index": 21,
+      "pred_t_ms": 77833,
+      "label_t_ms": 78200,
+      "dt_ms": 367
+    }
+  ],
   "version": "v3_iter4_eval",
   "source_video": "C:\\hong\\project-4\\iter4\\eval\\video\\benchmark.mp4",
   "phase_analysis": {
-    "rest_fp": 0,
-    "footwork_fp": 8,
-    "non_action_fp_total": 8,
+    "rest_fp": 1,
+    "footwork_fp": 4,
+    "non_action_fp_total": 5,
     "phases": [
       {
         "phase": "1. 준비 (Calibration)",
         "range": "00~06s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
         "phase": "2. 직선 펀치 (Straight)",
-        "range": "06~18s",
+        "range": "06~19s",
         "is_action": true,
         "detected": 4,
+        "fp": 0,
         "punches": [
           "RIGHT_CROSS",
           "LEFT_JAB",
@@ -50,31 +111,24 @@
       },
       {
         "phase": "⏸ 숨고르기 (Rest 1)",
-        "range": "18~23s",
+        "range": "19~23s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
         "phase": "3. 훅 펀치 (Hook)",
         "range": "23~35s",
         "is_action": true,
-        "detected": 14,
+        "detected": 5,
+        "fp": 0,
         "punches": [
           "LEFT_JAB",
           "RIGHT_CROSS",
-          "RIGHT_CROSS",
-          "RIGHT_CROSS",
-          "RIGHT_CROSS",
           "LEFT_JAB",
           "LEFT_HOOK",
-          "RIGHT_CROSS",
-          "LEFT_HOOK",
-          "RIGHT_CROSS",
-          "LEFT_HOOK",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
-          "LEFT_HOOK"
+          "LEFT_JAB"
         ]
       },
       {
@@ -82,27 +136,22 @@
         "range": "35~40s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
         "phase": "4. 어퍼컷 (Uppercut)",
         "range": "40~52s",
         "is_action": true,
-        "detected": 13,
+        "detected": 6,
+        "fp": 0,
         "punches": [
           "RIGHT_HOOK",
-          "LEFT_JAB",
-          "RIGHT_HOOK",
           "RIGHT_CROSS",
-          "RIGHT_HOOK",
           "RIGHT_CROSS",
           "LEFT_JAB",
           "RIGHT_CROSS",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
-          "LEFT_UPPERCUT",
-          "RIGHT_CROSS",
-          "LEFT_JAB"
+          "RIGHT_CROSS"
         ]
       },
       {
@@ -110,21 +159,19 @@
         "range": "52~57s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
         "phase": "5. 풋워크 (Footwork)",
         "range": "57~70s",
         "is_action": false,
-        "detected": 8,
+        "detected": 4,
+        "fp": 4,
         "punches": [
           "LEFT_JAB",
-          "RIGHT_CROSS",
           "LEFT_JAB",
           "LEFT_JAB",
-          "LEFT_JAB",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
           "LEFT_JAB"
         ]
       },
@@ -132,25 +179,24 @@
         "phase": "⏸ 숨고르기 (Rest 4)",
         "range": "70~75s",
         "is_action": false,
-        "detected": 0,
-        "punches": []
+        "detected": 1,
+        "fp": 1,
+        "punches": [
+          "LEFT_JAB"
+        ]
       },
       {
         "phase": "6. 실전 콤보 (Combos)",
         "range": "75~85s",
         "is_action": true,
-        "detected": 10,
+        "detected": 5,
+        "fp": 0,
         "punches": [
           "RIGHT_HOOK",
-          "RIGHT_HOOK",
-          "RIGHT_CROSS",
           "LEFT_JAB",
-          "RIGHT_HOOK",
+          "LEFT_JAB",
           "LEFT_HOOK",
-          "RIGHT_CROSS",
-          "RIGHT_UPPERCUT",
-          "LEFT_JAB",
-          "RIGHT_CROSS"
+          "RIGHT_UPPERCUT"
         ]
       },
       {
@@ -158,6 +204,7 @@
         "range": "85~90s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       }
     ]

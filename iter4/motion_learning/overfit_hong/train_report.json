@@ -1,0 +1,44 @@
+{
+  "purpose": "TCN을 benchmark.mp4(hong)에 overfitting시켜 분포 불일치 가설을 검증하는 실험용 모델. train/eval 데이터가 같은 영상에서 나왔으므로 일반화 성능 지표가 아님.",
+  "source_video": "eval/video/benchmark.mp4",
+  "n_frames_replayed": 2654,
+  "dataset_stats": {
+    "n_positive_base_windows": 87,
+    "n_negative_base_windows": 113,
+    "n_total_augmented_samples": 2922,
+    "class_counts": {
+      "IDLE": 960,
+      "LEFT_JAB": 432,
+      "RIGHT_JAB": 432,
+      "LEFT_HOOK": 189,
+      "RIGHT_HOOK": 189,
+      "LEFT_UPPERCUT": 162,
+      "RIGHT_UPPERCUT": 162,
+      "OTHER": 396
+    }
+  },
+  "augmentation": {
+    "mirror": "좌우 반전 (left/right 채널 swap + vx 부호 반전, 라벨도 LEFT<->RIGHT 교체)",
+    "anchor_time_jitter_ms": [
+      -150,
+      0,
+      150
+    ],
+    "time_warp_speed_factors": [
+      0.9,
+      1.0,
+      1.1
+    ],
+    "gaussian_jitter_sigma_scale": 0.05,
+    "n_noise_replicas_positive": 2,
+    "n_noise_replicas_negative": 1,
+    "negative_sampling_stride_ms": 400
+  },
+  "train_hyperparams": {
+    "epochs": 60,
+    "batch_size": 16,
+    "lr": 0.001,
+    "device": "cpu"
+  },
+  "train_set_self_accuracy": 0.9958932238193019
+}

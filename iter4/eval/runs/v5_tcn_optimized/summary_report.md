@@ -1,6 +1,6 @@
 # 🥊 Boxing Action Recognition Benchmark Report
 
-**생성 일시**: 2026-08-27 09:34:06  
+**생성 일시**: 2026-08-27 11:54:20  
 **평가 대상**: `C:\hong\project-4\iter4\eval\video\benchmark.mp4`  
 **허용 오차 윈도우**: `±400ms`
 
@@ -13,7 +13,7 @@
 | **F1-Score (종합)** | **0.3793** | $\ge 0.850$ | 🟡 REVIEW |
 | **Precision (정밀도)** | **0.3793** (11/29) | $\ge 0.800$ | 🟡 REVIEW |
 | **Recall (재현율)** | **0.3793** (11/29) | $\ge 0.850$ | 🟡 REVIEW |
-| **종류 분류 정확도 (Kind Acc)** | **0.0%** | $\ge 90.0\%$ | 🟡 REVIEW |
+| **종류 분류 정확도 (Kind Acc)** | **45.5%** | $\ge 90.0\%$ | 🟡 REVIEW |
 | **비동작/풋워크 오검출 (Non-Action FP)** | **7회** | $\le 3회$ | 🔴 과검출 발생 |
 | **평균 타격 지연 시간 (Timing MAE)** | **169.7 ms** | $\le 50.0 ms$ | 🟡 REVIEW |
 
@@ -24,8 +24,8 @@
 | 프로토콜 구간 | 시간대 | 성격 | 검출 횟수 | 상태 |
 | :--- | :---: | :---: | :---: | :---: |
 | **1. 준비 (Calibration)** | `00~06s` | 휴식/준비 | **0회** | 🟢 정상 |
-| **2. 직선 펀치 (Straight)** | `06~18s` | 동작 | **5회** | 🟢 정상 |
-| **⏸ 숨고르기 (Rest 1)** | `18~23s` | 휴식/준비 | **0회** | 🟢 정상 |
+| **2. 직선 펀치 (Straight)** | `06~19s` | 동작 | **5회** | 🟢 정상 |
+| **⏸ 숨고르기 (Rest 1)** | `19~23s` | 휴식/준비 | **0회** | 🟢 정상 |
 | **3. 훅 펀치 (Hook)** | `23~35s` | 동작 | **5회** | 🟢 정상 |
 | **⏸ 숨고르기 (Rest 2)** | `35~40s` | 휴식/준비 | **0회** | 🟢 정상 |
 | **4. 어퍼컷 (Uppercut)** | `40~52s` | 동작 | **7회** | 🟢 정상 |
@@ -40,13 +40,12 @@
 ## 3. 🎯 펀치 종류별 혼동 행렬 (Confusion Matrix)
 
 ```text
-  • HOOK->CROSS              : 1회
-  • STRAIGHT->CROSS          : 1회
-  • STRAIGHT->HOOK           : 2회
-  • STRAIGHT->JAB            : 3회
+  • HOOK->UPPERCUT           : 1회
+  • STRAIGHT->HOOK           : 1회
+  • STRAIGHT->STRAIGHT       : 5회
   • STRAIGHT->UPPERCUT       : 1회
-  • UPPERCUT->CROSS          : 2회
-  • UPPERCUT->JAB            : 1회
+  • UPPERCUT->HOOK           : 1회
+  • UPPERCUT->STRAIGHT       : 2회
 ```
 
 ---

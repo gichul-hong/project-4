@@ -1,0 +1,522 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-27T01:05:21.186426+00:00",
+  "classes": [
+    "IDLE",
+    "LEFT_JAB",
+    "RIGHT_JAB",
+    "LEFT_HOOK",
+    "RIGHT_HOOK",
+    "LEFT_UPPERCUT",
+    "RIGHT_UPPERCUT",
+    "TWO_HAND_GUARD",
+    "ENERGY_WAVE",
+    "OTHER"
+  ],
+  "n_total": 200,
+  "n_used": 183,
+  "n_outliers_excluded": 17,
+  "objective": "macro_f1 - 0.15 * safe_false_attack_rate",
+  "loso_folds": [
+    {
+      "held_out_participant": "cheols",
+      "n_train": 140,
+      "n_train_augmented": 140,
+      "n_test": 43,
+      "augmentation_counts": {
+        "original": 140
+      },
+      "baseline_macro_f1": 0.3579602415128731,
+      "optimized_macro_f1": 0.329920634920635,
+      "optimized_safe_false_attack_rate": 0.1111111111111111,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 0.8753377338784873,
+        "elbow_dist_guard": 1.417595799300102,
+        "idle_speed_max": 3.99085643026122,
+        "wave_min_speed": 10.450172014862304,
+        "wave_balance_ratio": 0.7083543366800729,
+        "other_balance_min": 0.6219736121463978,
+        "uppercut_vy": 0.4198945235210878,
+        "uppercut_elbow_ratio": 0.8741287458695297,
+        "hook_vx": 0.10319380578051021,
+        "hook_elbow_ratio": 0.7941492360115303,
+        "jab_vz_min": 0.7857907972173327
+      }
+    },
+    {
+      "held_out_participant": "hong",
+      "n_train": 140,
+      "n_train_augmented": 140,
+      "n_test": 43,
+      "augmentation_counts": {
+        "original": 140
+      },
+      "baseline_macro_f1": 0.28334776334776335,
+      "optimized_macro_f1": 0.3014239028944911,
+      "optimized_safe_false_attack_rate": 0.3333333333333333,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 1.0953444177024547,
+        "elbow_dist_guard": 1.4645242587205887,
+        "idle_speed_max": 8.856043336862506,
+        "wave_min_speed": 17.54787573073385,
+        "wave_balance_ratio": 0.48522879346149744,
+        "other_balance_min": 0.8419695473404403,
+        "uppercut_vy": 0.1705008275819185,
+        "uppercut_elbow_ratio": 0.9274653891099094,
+        "hook_vx": 0.23782248663364408,
+        "hook_elbow_ratio": 0.904553336063153,
+        "jab_vz_min": 0.7851145663202345
+      }
+    },
+    {
+      "held_out_participant": "kim",
+      "n_train": 136,
+      "n_train_augmented": 136,
+      "n_test": 47,
+      "augmentation_counts": {
+        "original": 136
+      },
+      "baseline_macro_f1": 0.11555555555555556,
+      "optimized_macro_f1": 0.230993080993081,
+      "optimized_safe_false_attack_rate": 0.2,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 1.0614325980074604,
+        "elbow_dist_guard": 1.518725184330233,
+        "idle_speed_max": 6.918531028733753,
+        "wave_min_speed": 17.4765142484389,
+        "wave_balance_ratio": 0.7749008657638672,
+        "other_balance_min": 0.908867165197933,
+        "uppercut_vy": 0.4049207096290136,
+        "uppercut_elbow_ratio": 0.7881118346906233,
+        "hook_vx": 0.2754602396591843,
+        "hook_elbow_ratio": 0.8564476524457272,
+        "jab_vz_min": 0.6696204515408747
+      }
+    },
+    {
+      "held_out_participant": "suhwan",
+      "n_train": 133,
+      "n_train_augmented": 133,
+      "n_test": 50,
+      "augmentation_counts": {
+        "original": 133
+      },
+      "baseline_macro_f1": 0.34980942970073403,
+      "optimized_macro_f1": 0.2854761904761905,
+      "optimized_safe_false_attack_rate": 0.0,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 1.0666749225842724,
+        "elbow_dist_guard": 1.240962902478499,
+        "idle_speed_max": 11.000990164984374,
+        "wave_min_speed": 24.905831819599236,
+        "wave_balance_ratio": 0.6069808939718602,
+        "other_balance_min": 0.6550932173719036,
+        "uppercut_vy": 0.14615220401314896,
+        "uppercut_elbow_ratio": 0.7144677938308688,
+        "hook_vx": 0.1267187988035102,
+        "hook_elbow_ratio": 0.8220983090998875,
+        "jab_vz_min": 0.680384550980122
+      }
+    }
+  ],
+  "loso_baseline": {
+    "accuracy": 0.3333333333333333,
+    "macro_f1": 0.2934746949105205,
+    "safe_false_attack_rate": 0.22857142857142856,
+    "confusion_matrix": [
+      [
+        12,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4,
+        0,
+        0
+      ],
+      [
+        6,
+        11,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        8,
+        1,
+        4,
+        0,
+        0,
+        0,
+        1,
+        3,
+        0,
+        0
+      ],
+      [
+        2,
+        10,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        4,
+        0
+      ],
+      [
+        1,
+        2,
+        10,
+        0,
+        5,
+        0,
+        1,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        13,
+        0,
+        0,
+        0,
+        6,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        11,
+        0,
+        0,
+        0,
+        5,
+        3,
+        0,
+        0
+      ],
+      [
+        3,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        15,
+        0,
+        0
+      ],
+      [
+        1,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        12,
+        0,
+        0
+      ],
+      [
+        7,
+        3,
+        0,
+        0,
+        0,
+        0,
+        1,
+        4,
+        2,
+        0
+      ]
+    ],
+    "per_class": {
+      "IDLE": {
+        "precision": 0.2926829268292683,
+        "recall": 0.6666666666666666,
+        "f1": 0.4067796610169492,
+        "support": 18
+      },
+      "LEFT_JAB": {
+        "precision": 0.2391304347826087,
+        "recall": 0.6111111111111112,
+        "f1": 0.34375,
+        "support": 18
+      },
+      "RIGHT_JAB": {
+        "precision": 0.16,
+        "recall": 0.23529411764705882,
+        "f1": 0.19047619047619052,
+        "support": 17
+      },
+      "LEFT_HOOK": {
+        "precision": 1.0,
+        "recall": 0.15789473684210525,
+        "f1": 0.2727272727272727,
+        "support": 19
+      },
+      "RIGHT_HOOK": {
+        "precision": 1.0,
+        "recall": 0.25,
+        "f1": 0.4,
+        "support": 20
+      },
+      "LEFT_UPPERCUT": {
+        "precision": 1.0,
+        "recall": 0.3157894736842105,
+        "f1": 0.4799999999999999,
+        "support": 19
+      },
+      "RIGHT_UPPERCUT": {
+        "precision": 0.625,
+        "recall": 0.25,
+        "f1": 0.35714285714285715,
+        "support": 20
+      },
+      "TWO_HAND_GUARD": {
+        "precision": 0.3488372093023256,
+        "recall": 0.7894736842105263,
+        "f1": 0.48387096774193555,
+        "support": 19
+      },
+      "ENERGY_WAVE": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 16
+      },
+      "OTHER": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 17
+      }
+    }
+  },
+  "loso_optimized": {
+    "accuracy": 0.30601092896174864,
+    "macro_f1": 0.3037005583137261,
+    "safe_false_attack_rate": 0.14285714285714285,
+    "confusion_matrix": [
+      [
+        8,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        7,
+        0,
+        3
+      ],
+      [
+        5,
+        4,
+        0,
+        5,
+        0,
+        0,
+        0,
+        1,
+        0,
+        3
+      ],
+      [
+        5,
+        2,
+        1,
+        1,
+        3,
+        0,
+        1,
+        2,
+        1,
+        1
+      ],
+      [
+        1,
+        7,
+        0,
+        5,
+        0,
+        1,
+        0,
+        0,
+        4,
+        1
+      ],
+      [
+        0,
+        0,
+        5,
+        0,
+        8,
+        0,
+        2,
+        1,
+        1,
+        3
+      ],
+      [
+        0,
+        5,
+        0,
+        3,
+        0,
+        7,
+        0,
+        2,
+        1,
+        1
+      ],
+      [
+        0,
+        0,
+        7,
+        0,
+        0,
+        0,
+        7,
+        3,
+        1,
+        2
+      ],
+      [
+        3,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        12,
+        1,
+        2
+      ],
+      [
+        0,
+        3,
+        0,
+        1,
+        0,
+        0,
+        0,
+        8,
+        1,
+        3
+      ],
+      [
+        6,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        3,
+        3
+      ]
+    ],
+    "per_class": {
+      "IDLE": {
+        "precision": 0.2857142857142857,
+        "recall": 0.4444444444444444,
+        "f1": 0.34782608695652173,
+        "support": 18
+      },
+      "LEFT_JAB": {
+        "precision": 0.16666666666666666,
+        "recall": 0.2222222222222222,
+        "f1": 0.1904761904761905,
+        "support": 18
+      },
+      "RIGHT_JAB": {
+        "precision": 0.07692307692307693,
+        "recall": 0.058823529411764705,
+        "f1": 0.06666666666666667,
+        "support": 17
+      },
+      "LEFT_HOOK": {
+        "precision": 0.3333333333333333,
+        "recall": 0.2631578947368421,
+        "f1": 0.29411764705882354,
+        "support": 19
+      },
+      "RIGHT_HOOK": {
+        "precision": 0.7272727272727273,
+        "recall": 0.4,
+        "f1": 0.5161290322580645,
+        "support": 20
+      },
+      "LEFT_UPPERCUT": {
+        "precision": 0.875,
+        "recall": 0.3684210526315789,
+        "f1": 0.5185185185185185,
+        "support": 19
+      },
+      "RIGHT_UPPERCUT": {
+        "precision": 0.7,
+        "recall": 0.35,
+        "f1": 0.4666666666666667,
+        "support": 20
+      },
+      "TWO_HAND_GUARD": {
+        "precision": 0.3076923076923077,
+        "recall": 0.631578947368421,
+        "f1": 0.41379310344827586,
+        "support": 19
+      },
+      "ENERGY_WAVE": {
+        "precision": 0.07692307692307693,
+        "recall": 0.0625,
+        "f1": 0.06896551724137931,
+        "support": 16
+      },
+      "OTHER": {
+        "precision": 0.13636363636363635,
+        "recall": 0.17647058823529413,
+        "f1": 0.15384615384615383,
+        "support": 17
+      }
+    }
+  },
+  "final_training_objective": 0.40894669685483764,
+  "final_augmentation_counts": {
+    "original": 183
+  },
+  "final_thresholds": {
+    "lookback_frames": 8,
+    "hand_dist_guard": 1.143723286645324,
+    "elbow_dist_guard": 1.4837044822374352,
+    "idle_speed_max": 6.962551314401278,
+    "wave_min_speed": 10.933978141535075,
+    "wave_balance_ratio": 0.7718786028129884,
+    "other_balance_min": 0.7201035331609651,
+    "uppercut_vy": 0.43204213500945154,
+    "uppercut_elbow_ratio": 0.9477837238663764,
+    "hook_vx": 0.3030036308485613,
+    "hook_elbow_ratio": 0.9018989612851167,
+    "jab_vz_min": 0.6848602861668662
+  }
+}

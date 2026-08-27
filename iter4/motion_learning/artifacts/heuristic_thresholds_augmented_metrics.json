@@ -1,0 +1,562 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-27T01:04:49.848684+00:00",
+  "classes": [
+    "IDLE",
+    "LEFT_JAB",
+    "RIGHT_JAB",
+    "LEFT_HOOK",
+    "RIGHT_HOOK",
+    "LEFT_UPPERCUT",
+    "RIGHT_UPPERCUT",
+    "TWO_HAND_GUARD",
+    "ENERGY_WAVE",
+    "OTHER"
+  ],
+  "n_total": 200,
+  "n_used": 183,
+  "n_outliers_excluded": 17,
+  "objective": "macro_f1 - 0.15 * safe_false_attack_rate",
+  "loso_folds": [
+    {
+      "held_out_participant": "cheols",
+      "n_train": 140,
+      "n_train_augmented": 1318,
+      "n_test": 43,
+      "augmentation_counts": {
+        "original": 140,
+        "horizontal_mirror": 140,
+        "time_scale_0.8": 140,
+        "time_scale_1.2": 140,
+        "frame_dropout_imputed": 140,
+        "feature_noise": 140,
+        "visibility_loss_imputed": 140,
+        "camera_distance": 140,
+        "action_prefix": 198
+      },
+      "baseline_macro_f1": 0.3579602415128731,
+      "optimized_macro_f1": 0.44803418803418804,
+      "optimized_safe_false_attack_rate": 0.1111111111111111,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 0.8698360209322701,
+        "elbow_dist_guard": 1.373519731143798,
+        "idle_speed_max": 7.627805844661807,
+        "wave_min_speed": 13.131668798822965,
+        "wave_balance_ratio": 0.4899214578592115,
+        "other_balance_min": 0.747897154936524,
+        "uppercut_vy": 0.3265861803862018,
+        "uppercut_elbow_ratio": 0.9062177718951059,
+        "hook_vx": 0.10003332403755429,
+        "hook_elbow_ratio": 0.8511051459292409,
+        "jab_vz_min": 0.6630921688867029
+      }
+    },
+    {
+      "held_out_participant": "hong",
+      "n_train": 140,
+      "n_train_augmented": 1314,
+      "n_test": 43,
+      "augmentation_counts": {
+        "original": 140,
+        "horizontal_mirror": 140,
+        "time_scale_0.8": 140,
+        "time_scale_1.2": 140,
+        "frame_dropout_imputed": 140,
+        "feature_noise": 140,
+        "visibility_loss_imputed": 140,
+        "camera_distance": 140,
+        "action_prefix": 194
+      },
+      "baseline_macro_f1": 0.28334776334776335,
+      "optimized_macro_f1": 0.34325396825396826,
+      "optimized_safe_false_attack_rate": 0.3333333333333333,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 1.1173518230261523,
+        "elbow_dist_guard": 1.469924299333079,
+        "idle_speed_max": 6.637129231901836,
+        "wave_min_speed": 25.211417449365054,
+        "wave_balance_ratio": 0.6915376868544814,
+        "other_balance_min": 0.8429900066902053,
+        "uppercut_vy": 0.3335273296513971,
+        "uppercut_elbow_ratio": 0.9114271558122609,
+        "hook_vx": 0.23313205546301302,
+        "hook_elbow_ratio": 0.8731351529083884,
+        "jab_vz_min": 0.6605529644033312
+      }
+    },
+    {
+      "held_out_participant": "kim",
+      "n_train": 136,
+      "n_train_augmented": 1282,
+      "n_test": 47,
+      "augmentation_counts": {
+        "original": 136,
+        "horizontal_mirror": 136,
+        "time_scale_0.8": 136,
+        "time_scale_1.2": 136,
+        "frame_dropout_imputed": 136,
+        "feature_noise": 136,
+        "visibility_loss_imputed": 136,
+        "camera_distance": 136,
+        "action_prefix": 194
+      },
+      "baseline_macro_f1": 0.11555555555555556,
+      "optimized_macro_f1": 0.24594017094017095,
+      "optimized_safe_false_attack_rate": 0.6,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 0.9754802712893144,
+        "elbow_dist_guard": 1.5352181189844047,
+        "idle_speed_max": 4.4454984227093135,
+        "wave_min_speed": 6.2349703922503785,
+        "wave_balance_ratio": 0.9294802738504845,
+        "other_balance_min": 0.7155032684396567,
+        "uppercut_vy": 0.4255239871698011,
+        "uppercut_elbow_ratio": 0.706113716599482,
+        "hook_vx": 0.20800625453266083,
+        "hook_elbow_ratio": 0.9344376230840785,
+        "jab_vz_min": 0.6566106030656303
+      }
+    },
+    {
+      "held_out_participant": "suhwan",
+      "n_train": 133,
+      "n_train_augmented": 1252,
+      "n_test": 50,
+      "augmentation_counts": {
+        "original": 133,
+        "horizontal_mirror": 133,
+        "time_scale_0.8": 133,
+        "time_scale_1.2": 133,
+        "frame_dropout_imputed": 133,
+        "feature_noise": 133,
+        "visibility_loss_imputed": 133,
+        "camera_distance": 133,
+        "action_prefix": 188
+      },
+      "baseline_macro_f1": 0.34980942970073403,
+      "optimized_macro_f1": 0.2854761904761905,
+      "optimized_safe_false_attack_rate": 0.0,
+      "thresholds": {
+        "lookback_frames": 8,
+        "hand_dist_guard": 1.0666749225842724,
+        "elbow_dist_guard": 1.2239629024784988,
+        "idle_speed_max": 11.000990164984374,
+        "wave_min_speed": 23.755831819599234,
+        "wave_balance_ratio": 0.6069808939718602,
+        "other_balance_min": 0.6594932173719036,
+        "uppercut_vy": 0.14615220401314896,
+        "uppercut_elbow_ratio": 0.7144677938308688,
+        "hook_vx": 0.1267187988035102,
+        "hook_elbow_ratio": 0.8220983090998875,
+        "jab_vz_min": 0.6907345509801219
+      }
+    }
+  ],
+  "loso_baseline": {
+    "accuracy": 0.3333333333333333,
+    "macro_f1": 0.2934746949105205,
+    "safe_false_attack_rate": 0.22857142857142856,
+    "confusion_matrix": [
+      [
+        12,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4,
+        0,
+        0
+      ],
+      [
+        6,
+        11,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        8,
+        1,
+        4,
+        0,
+        0,
+        0,
+        1,
+        3,
+        0,
+        0
+      ],
+      [
+        2,
+        10,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        4,
+        0
+      ],
+      [
+        1,
+        2,
+        10,
+        0,
+        5,
+        0,
+        1,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        13,
+        0,
+        0,
+        0,
+        6,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        11,
+        0,
+        0,
+        0,
+        5,
+        3,
+        0,
+        0
+      ],
+      [
+        3,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        15,
+        0,
+        0
+      ],
+      [
+        1,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        12,
+        0,
+        0
+      ],
+      [
+        7,
+        3,
+        0,
+        0,
+        0,
+        0,
+        1,
+        4,
+        2,
+        0
+      ]
+    ],
+    "per_class": {
+      "IDLE": {
+        "precision": 0.2926829268292683,
+        "recall": 0.6666666666666666,
+        "f1": 0.4067796610169492,
+        "support": 18
+      },
+      "LEFT_JAB": {
+        "precision": 0.2391304347826087,
+        "recall": 0.6111111111111112,
+        "f1": 0.34375,
+        "support": 18
+      },
+      "RIGHT_JAB": {
+        "precision": 0.16,
+        "recall": 0.23529411764705882,
+        "f1": 0.19047619047619052,
+        "support": 17
+      },
+      "LEFT_HOOK": {
+        "precision": 1.0,
+        "recall": 0.15789473684210525,
+        "f1": 0.2727272727272727,
+        "support": 19
+      },
+      "RIGHT_HOOK": {
+        "precision": 1.0,
+        "recall": 0.25,
+        "f1": 0.4,
+        "support": 20
+      },
+      "LEFT_UPPERCUT": {
+        "precision": 1.0,
+        "recall": 0.3157894736842105,
+        "f1": 0.4799999999999999,
+        "support": 19
+      },
+      "RIGHT_UPPERCUT": {
+        "precision": 0.625,
+        "recall": 0.25,
+        "f1": 0.35714285714285715,
+        "support": 20
+      },
+      "TWO_HAND_GUARD": {
+        "precision": 0.3488372093023256,
+        "recall": 0.7894736842105263,
+        "f1": 0.48387096774193555,
+        "support": 19
+      },
+      "ENERGY_WAVE": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 16
+      },
+      "OTHER": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 17
+      }
+    }
+  },
+  "loso_optimized": {
+    "accuracy": 0.3551912568306011,
+    "macro_f1": 0.35159630256414576,
+    "safe_false_attack_rate": 0.2571428571428571,
+    "confusion_matrix": [
+      [
+        10,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        1,
+        1
+      ],
+      [
+        4,
+        5,
+        0,
+        4,
+        0,
+        0,
+        0,
+        3,
+        0,
+        2
+      ],
+      [
+        4,
+        3,
+        2,
+        1,
+        3,
+        0,
+        1,
+        3,
+        0,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        6,
+        0,
+        1,
+        0,
+        0,
+        4,
+        2
+      ],
+      [
+        0,
+        0,
+        6,
+        1,
+        8,
+        0,
+        1,
+        1,
+        2,
+        1
+      ],
+      [
+        0,
+        6,
+        0,
+        3,
+        0,
+        9,
+        0,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        8,
+        0,
+        0,
+        0,
+        8,
+        3,
+        1,
+        0
+      ],
+      [
+        3,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0,
+        13,
+        0,
+        1
+      ],
+      [
+        1,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        7,
+        2,
+        3
+      ],
+      [
+        6,
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        2,
+        5,
+        2
+      ]
+    ],
+    "per_class": {
+      "IDLE": {
+        "precision": 0.3448275862068966,
+        "recall": 0.5555555555555556,
+        "f1": 0.4255319148936171,
+        "support": 18
+      },
+      "LEFT_JAB": {
+        "precision": 0.2,
+        "recall": 0.2777777777777778,
+        "f1": 0.23255813953488372,
+        "support": 18
+      },
+      "RIGHT_JAB": {
+        "precision": 0.11764705882352941,
+        "recall": 0.11764705882352941,
+        "f1": 0.11764705882352941,
+        "support": 17
+      },
+      "LEFT_HOOK": {
+        "precision": 0.375,
+        "recall": 0.3157894736842105,
+        "f1": 0.34285714285714286,
+        "support": 19
+      },
+      "RIGHT_HOOK": {
+        "precision": 0.7272727272727273,
+        "recall": 0.4,
+        "f1": 0.5161290322580645,
+        "support": 20
+      },
+      "LEFT_UPPERCUT": {
+        "precision": 0.9,
+        "recall": 0.47368421052631576,
+        "f1": 0.6206896551724138,
+        "support": 19
+      },
+      "RIGHT_UPPERCUT": {
+        "precision": 0.8,
+        "recall": 0.4,
+        "f1": 0.5333333333333333,
+        "support": 20
+      },
+      "TWO_HAND_GUARD": {
+        "precision": 0.35135135135135137,
+        "recall": 0.6842105263157895,
+        "f1": 0.4642857142857143,
+        "support": 19
+      },
+      "ENERGY_WAVE": {
+        "precision": 0.125,
+        "recall": 0.125,
+        "f1": 0.125,
+        "support": 16
+      },
+      "OTHER": {
+        "precision": 0.16666666666666666,
+        "recall": 0.11764705882352941,
+        "f1": 0.13793103448275862,
+        "support": 17
+      }
+    }
+  },
+  "final_training_objective": 0.3726737302779943,
+  "final_augmentation_counts": {
+    "original": 183,
+    "horizontal_mirror": 183,
+    "time_scale_0.8": 183,
+    "time_scale_1.2": 183,
+    "frame_dropout_imputed": 183,
+    "feature_noise": 183,
+    "visibility_loss_imputed": 183,
+    "camera_distance": 183,
+    "action_prefix": 258
+  },
+  "final_thresholds": {
+    "lookback_frames": 8,
+    "hand_dist_guard": 0.9795546723975053,
+    "elbow_dist_guard": 1.5347094364417826,
+    "idle_speed_max": 4.522467341093685,
+    "wave_min_speed": 17.53431249114906,
+    "wave_balance_ratio": 0.6633245152910686,
+    "other_balance_min": 0.7088683890810261,
+    "uppercut_vy": 0.2114118994999486,
+    "uppercut_elbow_ratio": 0.922758938123305,
+    "hook_vx": 0.12776823364959725,
+    "hook_elbow_ratio": 0.9321502863560795,
+    "jab_vz_min": 0.685092146136513
+  }
+}

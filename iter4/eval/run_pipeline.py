@@ -8,7 +8,7 @@ Runs the complete 4-stage pipeline:
   Stage 4: Automated Markdown & HTML Report Generation
 
 Usage:
-  python iter3/eval/run_pipeline.py --video iter3/eval/video/benchmark.mp4 --labels iter3/eval/video/benchmark_labels.json
+  python iter4/eval/run_pipeline.py --video iter4/eval/video/benchmark.mp4 --labels iter4/eval/video/benchmark_labels.json
 """
 import argparse
 import csv
@@ -47,14 +47,16 @@ def extract_pose_stage(video_path: Path, out_jsonl: Path, force: bool = False):
         "-o", str(out_jsonl),
         "--model", str(POSE_MODEL)
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    # capture_output=True 로 stdout 을 삼키면 TCN 로드 실패·랜드마크 진행률 같은
+    # 진단 메시지가 사용자에게 도달하지 않는다 (v4/v5 가 사실은 rule 결과였는데
+    # "완료"로 표기됐던 은폐 사고의 원인). stdout 은 실시간으로 그대로 흘려보낸다.
+    res = subprocess.run(cmd, text=True)
     if res.returncode != 0:
-        print(f"❌ Stage 1 실패:\n{res.stderr}")
-        raise RuntimeError("Pose extraction failed")
+        raise RuntimeError(f"Pose extraction failed (return code {res.returncode})")
     print(f"✅ [Stage 1] 랜드마크 추출 완료: {out_jsonl}")
 
 
-def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, engine: str = "rule", annotate_video: Path = None, raw_video: Path = None):
+def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, engine: str = "rule", annotate_video: Path = None, raw_video: Path = None, tcn_model_dir: Path = None):
     """Stage 2: Action Detection & Kinematics Engine."""
     print(f"⚙️ [Stage 2] 펀치 엔진 동작 판정 중... (Engine: {engine.upper()})")
     cmd = [
@@ -70,11 +72,13 @@ def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, c
         cmd.extend(["--labels", str(labels_path)])
     if annotate_video and raw_video:
         cmd.extend(["--annotate", str(annotate_video), str(raw_video)])
+    if tcn_model_dir:
+        cmd.extend(["--tcn-model-dir", str(tcn_model_dir)])
 
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    # stdout 을 실시간으로 흘려야 TCN 로드/폴백 로그가 보인다.
+    res = subprocess.run(cmd, text=True)
     if res.returncode != 0:
-        print(f"❌ Stage 2 실패:\n{res.stderr}")
-        raise RuntimeError("Inference failed")
+        raise RuntimeError(f"Inference failed (return code {res.returncode})")
     print(f"✅ [Stage 2] 동작 판정 완료 (Engine: {engine.upper()}, out_dir: {out_dir})")
 
 
@@ -85,12 +89,28 @@ def load_predictions(csv_path: Path):
         reader = csv.DictReader(f)
         for r in reader:
             clean = {k.strip().lstrip("\ufeff"): v.strip() for k, v in r.items() if k}
+            action = clean.get("action", "")
+            raw_kind = clean.get("kind", "")
+            if not raw_kind:
+                suffix = action.split("_")[-1] if "_" in action else action
+                raw_kind = suffix
+            
+            # Label dictionary normalization: JAB/CROSS/STRAIGHT -> STRAIGHT
+            if raw_kind.upper() in ("JAB", "CROSS", "STRAIGHT"):
+                kind = "STRAIGHT"
+            elif "HOOK" in raw_kind.upper():
+                kind = "HOOK"
+            elif "UPPERCUT" in raw_kind.upper() or "UPPER" in raw_kind.upper():
+                kind = "UPPERCUT"
+            else:
+                kind = raw_kind.upper()
+
             punches.append({
                 "t_ms": int(float(clean["t_ms"])),
                 "frame": int(float(clean.get("frame", 0))),
                 "side": clean.get("side", ""),
-                "action": clean.get("action", ""),
-                "kind": clean.get("action", "").split("_")[-1] if "_" in clean.get("action", "") else clean.get("action", ""),
+                "action": action,
+                "kind": kind,
                 "speed_kmh": float(clean.get("speed_kmh", 0)),
                 "elbow_deg": float(clean.get("elbow_deg", 0)),
                 "conf_margin": float(clean.get("conf_margin", 0)),
@@ -98,39 +118,72 @@ def load_predictions(csv_path: Path):
     return punches
 
 
-def calculate_phase_metrics(punches, duration_sec):
-    """Calculate False Positives in Rest and Footwork periods."""
-    # (t0, t1, phase_name, is_action_phase)
-    phases = [
-        (0, 6, "1. 준비 (Calibration)", False),
-        (6, 18, "2. 직선 펀치 (Straight)", True),
-        (18, 23, "⏸ 숨고르기 (Rest 1)", False),
-        (23, 35, "3. 훅 펀치 (Hook)", True),
-        (35, 40, "⏸ 숨고르기 (Rest 2)", False),
-        (40, 52, "4. 어퍼컷 (Uppercut)", True),
-        (52, 57, "⏸ 숨고르기 (Rest 3)", False),
-        (57, 70, "5. 풋워크 (Footwork)", False),
-        (70, 75, "⏸ 숨고르기 (Rest 4)", False),
-        (75, 85, "6. 실전 콤보 (Combos)", True),
-        (85, 90, "7. 마무리 (Cooldown)", False),
-    ]
+def calculate_phase_metrics(punches, duration_sec, matched_pred_indices=None, phases=None):
+    """구간별 검출 통계와 비동작 구간의 순수 오검출(FP) 수를 계산한다.
+
+    이전 버전 문제:
+      * phase 2 경계가 6~18s 였는데 라벨 마지막 크로스는 18400ms 라서
+        정상 검출이 phase 3("Rest 1", 18~23s) 로 흘러 non_action_fp 로 잡혔다.
+      * TP 매칭 여부와 무관하게 "비동작 구간에 잡힌 모든 예측"을 오검출로
+        세서, tolerance 로 이미 정답과 매칭된 예측이 이중으로 페널티를 받았다.
+
+    개선:
+      * phase 정의를 인자로 받아 라벨 파일에서 주입할 수 있게 한다.
+        (예전엔 90초 프로토콜이 함수 본문에 하드코딩되어 다른 벤치마크를
+         평가하면 phase_analysis 가 조용히 오염됐다.)
+      * matched_pred_indices 가 주어지면 그 인덱스의 예측은 TP 이므로
+        non_action_fp 에서 제외한다. t_ms 대신 인덱스로 판정해 좌·우 팔이
+        같은 프레임에서 동시 발화 등으로 중복 t_ms 가 생겨도 오염되지 않는다.
+    """
+    matched_set = set(matched_pred_indices or [])
+
+    if phases is None:
+        # 기본값: iter4/eval/video/benchmark_90s_protocol.
+        # 라벨 실제 t_ms 를 감싸도록 조정: straight 마지막 = 18400ms → phase 2
+        # 종료를 19s 로, 첫 훅 = 24500ms → phase 3 시작은 23s 유지.
+        phases = [
+            (0, 6, "1. 준비 (Calibration)", False),
+            (6, 19, "2. 직선 펀치 (Straight)", True),
+            (19, 23, "⏸ 숨고르기 (Rest 1)", False),
+            (23, 35, "3. 훅 펀치 (Hook)", True),
+            (35, 40, "⏸ 숨고르기 (Rest 2)", False),
+            (40, 52, "4. 어퍼컷 (Uppercut)", True),
+            (52, 57, "⏸ 숨고르기 (Rest 3)", False),
+            (57, 70, "5. 풋워크 (Footwork)", False),
+            (70, 75, "⏸ 숨고르기 (Rest 4)", False),
+            (75, 85, "6. 실전 콤보 (Combos)", True),
+            (85, 90, "7. 마무리 (Cooldown)", False),
+        ]
+
     rest_fp_count = 0
     footwork_fp_count = 0
     phase_stats = []
 
+    # 인덱스로 매칭 여부를 판단하려면 원래 순서를 유지한 채로 순회해야 한다.
+    # punches 는 CSV 로드 시점 순서(=시간순) 로 이미 정렬돼 있다.
     for t0, t1, name, is_action in phases:
-        detected = [p for p in punches if t0 * 1000 <= p["t_ms"] < t1 * 1000]
+        detected_pairs = [
+            (i, p) for i, p in enumerate(punches)
+            if t0 * 1000 <= p["t_ms"] < t1 * 1000
+        ]
+        detected = [p for _, p in detected_pairs]
         count = len(detected)
+        # 비동작 구간이라도 TP 매칭된 예측은 오검출이 아니다.
+        # 인덱스 기반이라 같은 t_ms 예측이 여럿 있어도 정확히 그 중 매칭된
+        # 것만 TP 로 잡힌다.
+        fp_here = [p for i, p in detected_pairs if i not in matched_set]
+        fp_count = len(fp_here)
         if not is_action:
             if "풋워크" in name:
-                footwork_fp_count += count
+                footwork_fp_count += fp_count
             else:
-                rest_fp_count += count
+                rest_fp_count += fp_count
         phase_stats.append({
             "phase": name,
             "range": f"{t0:02d}~{t1:02d}s",
             "is_action": is_action,
             "detected": count,
+            "fp": fp_count if not is_action else 0,
             "punches": [p["action"] for p in detected]
         })
 
@@ -140,6 +193,37 @@ def calculate_phase_metrics(punches, duration_sec):
         "non_action_fp_total": rest_fp_count + footwork_fp_count,
         "phases": phase_stats
     }
+
+
+def load_phase_definitions(labels_path: Path):
+    """labels.json 에서 phases 정의를 읽는다. 없으면 None.
+
+    스키마:
+      {"phases": [{"t0": 0, "t1": 6, "name": "Calibration", "is_action": false}, ...]}
+    또는 case 이름이 "benchmark_90s_protocol" 이면 기본 90초 프로토콜을 사용한다.
+    """
+    if not labels_path or not labels_path.exists():
+        return None
+    try:
+        data = json.loads(labels_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    raw_phases = data.get("phases")
+    if raw_phases:
+        return [
+            (int(p["t0"]), int(p["t1"]), str(p["name"]), bool(p["is_action"]))
+            for p in raw_phases
+        ]
+
+    # 명시적 phase 정의가 없고 알려지지 않은 case 면 phase 분석을 스킵할 수
+    # 있도록 sentinel 리턴. 90초 프로토콜만 하드코딩 기본값을 쓴다.
+    case = data.get("case", "")
+    if case == "benchmark_90s_protocol":
+        return None  # 기본값 사용
+    # 다른 case 는 안전을 위해 phase 정보를 명시하도록 유도.
+    print(f"⚠️ [Phase] labels 파일에 phases 정의가 없고 case='{case}' 는 알려진 프로토콜이 아닙니다. phase_analysis 를 스킵합니다.")
+    return []  # 빈 리스트 = phase 분석 스킵
 
 
 def generate_markdown_report(metrics: dict, phase_metrics: dict, punches: list, output_path: Path):
@@ -178,7 +262,14 @@ def generate_markdown_report(metrics: dict, phase_metrics: dict, punches: list, 
 | :--- | :---: | :---: | :---: | :---: |
 """
     for p in phase_metrics["phases"]:
-        status = "🟢 정상" if (p["is_action"] and p["detected"] > 0) or (not p["is_action"] and p["detected"] == 0) else f"⚠️ {p['detected']}회 오검출"
+        # 상태 판정 로직: 동작 구간은 검출이 있으면 정상, 비동작 구간은 fp(TP 제외)
+        # 가 0 이면 정상. 예전에는 detected==0 만 봤기 때문에 라벨이 걸쳐 있는
+        # 구간의 정상 검출까지 "오검출"로 표시되던 문제가 있었다.
+        if p["is_action"]:
+            status = "🟢 정상" if p["detected"] > 0 else "⚠️ 미검출"
+        else:
+            fp_here = p.get("fp", p["detected"])
+            status = "🟢 정상" if fp_here == 0 else f"⚠️ {fp_here}회 오검출"
         md += f"| **{p['phase']}** | `{p['range']}` | {'동작' if p['is_action'] else '휴식/준비'} | **{p['detected']}회** | {status} |\n"
 
     md += """
@@ -253,7 +344,8 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
 def main():
     ap = argparse.ArgumentParser(description="Version-Controlled End-to-End Boxing Benchmark Pipeline")
     ap.add_argument("--version", default=None, help="Version tag (e.g. v1_baseline, v4_tcn_hybrid)")
-    ap.add_argument("--engine", default="rule", choices=["rule", "tcn"], help="Punch classification engine (rule or tcn)")
+    ap.add_argument("--engine", default="rule", choices=["rule", "tcn", "tcn_trigger", "tcn_hybrid"], help="Punch classification engine (rule, tcn, tcn_trigger, or tcn_hybrid)")
+    ap.add_argument("--tcn-model-dir", default=None, help="Override dir containing boxing_tcn.pth + boxing_tcn_scaler.json")
     ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter4/eval/configs/v4_tcn_hybrid.json)")
     ap.add_argument("--video", default=str(SCRIPT_DIR / "video" / "benchmark.mp4"), help="Input video file")
     ap.add_argument("--labels", default=str(SCRIPT_DIR / "video" / "benchmark_labels.json"), help="Ground truth labels JSON")
@@ -312,7 +404,8 @@ def main():
     extract_pose_stage(video_path, jsonl_path, force=args.force_extract)
 
     # Stage 2: Action Inference
-    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine)
+    tcn_model_dir = Path(args.tcn_model_dir).resolve() if args.tcn_model_dir else None
+    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine, tcn_model_dir=tcn_model_dir)
     punches = load_predictions(csv_path)
 
     # Stage 3: Scoring & Metrics
@@ -323,8 +416,28 @@ def main():
         metrics["version"] = version_tag
         metrics["source_video"] = str(video_path)
 
-    # Phase FP metrics
-    phase_metrics = calculate_phase_metrics(punches, duration_sec=90)
+    # Phase FP metrics — TP 매칭된 예측은 non_action_fp 에서 제외한다.
+    # pred_index 로 판정해 같은 t_ms 예측이 여러 개여도 정확히 분리된다.
+    matched_indices = [m["pred_index"] for m in metrics.get("matches", [])]
+    # phase 정의는 labels 파일에서 우선적으로 읽되, 없으면 90초 프로토콜 기본값.
+    # 알려지지 않은 case 면 phase 분석을 스킵해 registry 오염을 막는다.
+    phase_defs = load_phase_definitions(labels_path) if labels_path else None
+    if phase_defs == []:
+        # 명시적으로 스킵
+        phase_metrics = {
+            "rest_fp": 0,
+            "footwork_fp": 0,
+            "non_action_fp_total": 0,
+            "phases": [],
+            "skipped": True,
+            "reason": "no phase definition for this labels case",
+        }
+    else:
+        phase_metrics = calculate_phase_metrics(
+            punches, duration_sec=90,
+            matched_pred_indices=matched_indices,
+            phases=phase_defs,
+        )
     metrics["phase_analysis"] = phase_metrics
 
     # Save metrics JSON

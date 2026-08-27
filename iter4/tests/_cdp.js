@@ -9,21 +9,68 @@
  * 외부 의존성 없음 — Node 22의 내장 fetch/WebSocket 만 쓴다.
  */
 const { spawn } = require('child_process');
+const path = require('path');
 
-const BROWSERS = [
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+// 브라우저 실행 파일 후보. **플랫폼마다 다르다** — Windows 경로만 두면 리눅스
+// 컨테이너(웹 Claude Code · CI)에서 브라우저 하니스가 통째로 못 돈다.
+// 우선순위: 환경변수 → 플랫폼별 표준 경로 → PATH 탐색.
+const BROWSER_PATHS = {
+  win32: [
+    'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  ],
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  ],
+  linux: [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/microsoft-edge',
+    '/snap/bin/chromium',
+  ],
+};
+
+// PATH 에서 찾을 실행 파일 이름 (경로가 배포판마다 달라도 이쪽으로 걸린다)
+const BROWSER_NAMES = [
+  'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
+  'microsoft-edge', 'chrome',
 ];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function findBrowser() {
   const fs = require('fs');
-  const hit = BROWSERS.find(p => fs.existsSync(p));
-  if (!hit) throw new Error('Chrome/Edge 를 찾지 못했습니다. BROWSERS 경로를 확인하세요.');
-  return hit;
+
+  // 1) 환경변수로 직접 지정 — 어느 플랫폼이든 이게 최우선
+  const env = process.env.CHROME_PATH || process.env.CHROME_BIN || process.env.BROWSER_PATH;
+  if (env && fs.existsSync(env)) return env;
+
+  // 2) 플랫폼별 표준 설치 경로
+  const candidates = BROWSER_PATHS[process.platform] || BROWSER_PATHS.linux;
+  const hit = candidates.find(p => fs.existsSync(p));
+  if (hit) return hit;
+
+  // 3) PATH 탐색. 리눅스 컨테이너는 설치 경로가 배포판마다 달라 이쪽이 더 잘 걸린다.
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const name of BROWSER_NAMES) {
+    for (const dir of dirs) {
+      const full = path.join(dir, name);
+      if (fs.existsSync(full)) return full;
+    }
+  }
+
+  throw new Error([
+    'Chrome/Edge 를 찾지 못했습니다.',
+    '  설치돼 있다면 CHROME_PATH 환경변수로 실행 파일을 지정하세요.',
+    '  브라우저가 없는 환경(웹 Claude Code 등)이라면 로직 하니스 7종만 돌리면 됩니다 —',
+    '  pose / effects / aim / move / face / punch / doc',
+  ].join(String.fromCharCode(10)));
 }
 
 /**
