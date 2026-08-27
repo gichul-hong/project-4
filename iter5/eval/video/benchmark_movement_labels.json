@@ -1,0 +1,128 @@
+{
+  "case": "benchmark_movement_v1",
+  "source": "eval/video/benchmark_movement.mp4",
+  "note": "record_webcam_movement.py 가 촬영 스케줄(지시 시각)로부터 자동 생성한 라벨입니다. 사람의 반응 지연을 흡수하도록 tolerance를 넉넉히 잡았지만, 특정 구간에서 반응이 유난히 늦었다면 영상을 보며 start_ms/end_ms를 손으로 보정하세요.",
+  "onset_tolerance_ms": 400,
+  "offset_tolerance_ms": 300,
+  "move_segments": [
+    {
+      "start_ms": 6000,
+      "end_ms": 11000,
+      "state": "FORWARD",
+      "desc": "어깨를 수평으로 유지한 채 크게 앞으로 숙이기"
+    },
+    {
+      "start_ms": 16000,
+      "end_ms": 21000,
+      "state": "FORWARD",
+      "desc": "어깨 수평 유지, 살짝만 앞으로 숙이기"
+    },
+    {
+      "start_ms": 26000,
+      "end_ms": 31000,
+      "state": "BACK",
+      "desc": "어깨 수평 유지, 크게 뒤로 젖히기"
+    },
+    {
+      "start_ms": 36000,
+      "end_ms": 41000,
+      "state": "BACK",
+      "desc": "어깨 수평 유지, 살짝만 뒤로 젖히기"
+    },
+    {
+      "start_ms": 46000,
+      "end_ms": 51000,
+      "state": "LEFT",
+      "desc": "왼쪽 어깨를 내려 어깨선을 기울이기"
+    },
+    {
+      "start_ms": 56000,
+      "end_ms": 61000,
+      "state": "RIGHT",
+      "desc": "오른쪽 어깨를 내려 어깨선을 기울이기"
+    },
+    {
+      "start_ms": 66000,
+      "end_ms": 68000,
+      "state": "LEFT",
+      "desc": "왼쪽으로 기울이기"
+    },
+    {
+      "start_ms": 69000,
+      "end_ms": 71000,
+      "state": "RIGHT",
+      "desc": "오른쪽으로 기울이기"
+    },
+    {
+      "start_ms": 72000,
+      "end_ms": 74000,
+      "state": "LEFT",
+      "desc": "왼쪽으로 기울이기"
+    },
+    {
+      "start_ms": 135000,
+      "end_ms": 140000,
+      "state": "FORWARD",
+      "desc": "앞으로 숙인 채 양 주먹을 왼쪽으로 쓸기"
+    },
+    {
+      "start_ms": 145000,
+      "end_ms": 150000,
+      "state": "FORWARD",
+      "desc": "앞으로 숙인 채로 잽을 계속 뻗기 (전진 상태 유지되어야 함)"
+    }
+  ],
+  "rot_segments": [
+    {
+      "start_ms": 79000,
+      "end_ms": 84000,
+      "state": "ROT_LEFT",
+      "desc": "어깨는 수평! 양 주먹을 함께 왼쪽으로 한 번 쓸기"
+    },
+    {
+      "start_ms": 89000,
+      "end_ms": 94000,
+      "state": "ROT_RIGHT",
+      "desc": "어깨는 수평! 양 주먹을 함께 오른쪽으로 한 번 쓸기"
+    },
+    {
+      "start_ms": 99000,
+      "end_ms": 105000,
+      "state": "ROT_LEFT",
+      "desc": "왼쪽으로 쓸기 -> 가운데로 되돌리기 -> 다시 왼쪽으로"
+    },
+    {
+      "start_ms": 135000,
+      "end_ms": 140000,
+      "state": "ROT_LEFT",
+      "desc": "앞으로 숙인 채 양 주먹을 왼쪽으로 쓸기"
+    }
+  ],
+  "negative_windows": [
+    {
+      "start_ms": 110000,
+      "end_ms": 114000,
+      "desc": "왼손 잽을 빠르게 4회 (몸이 흔들려도 이동/회전이 뜨면 안 됨)"
+    },
+    {
+      "start_ms": 114000,
+      "end_ms": 118000,
+      "desc": "훅 3회 (팔꿈치를 접고 휘두르기)"
+    },
+    {
+      "start_ms": 118000,
+      "end_ms": 122000,
+      "desc": "어퍼컷 3회 (아래에서 위로)"
+    },
+    {
+      "start_ms": 122000,
+      "end_ms": 126000,
+      "desc": "몸을 푸는 정도로만 살짝 좌우로 흔들기 (기울이지 않기)"
+    },
+    {
+      "start_ms": 126000,
+      "end_ms": 130000,
+      "desc": "양 주먹을 얼굴 옆으로 올려 가드 자세 유지"
+    }
+  ]
+}

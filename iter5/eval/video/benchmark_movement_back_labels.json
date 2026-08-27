@@ -1,0 +1,29 @@
+{
+  "case": "benchmark_movement_back_v1",
+  "source": "eval/video/benchmark_movement_back.mp4",
+  "note": "BACK 세그먼트만 재촬영한 짧은 보조 벤치마크. 의자 앞쪽에 걸터앉아 촬영.",
+  "onset_tolerance_ms": 400,
+  "offset_tolerance_ms": 300,
+  "move_segments": [
+    {
+      "start_ms": 6000,
+      "end_ms": 11000,
+      "state": "BACK",
+      "desc": "뒤로 최대한 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요"
+    },
+    {
+      "start_ms": 16000,
+      "end_ms": 21000,
+      "state": "BACK",
+      "desc": "살짝만 뒤로 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요"
+    },
+    {
+      "start_ms": 26000,
+      "end_ms": 31000,
+      "state": "BACK",
+      "desc": "다시 한 번 크게 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요"
+    }
+  ],
+  "rot_segments": [],
+  "negative_windows": []
+}

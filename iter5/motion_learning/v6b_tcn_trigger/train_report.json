@@ -1,0 +1,197 @@
+{
+  "purpose": "v6b: TCN이 트리거(언제 나가는지)까지 직접 담당. benchmark.mp4에서 테스트용으로 지정한 15개 정답(및 그 주변 ±2500ms)은 학습에서 완전히 제외했다.",
+  "train_gt_events": [
+    [
+      7500,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      9000,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      11133,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      14500,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      16000,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      17200,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      24500,
+      "L",
+      "HOOK"
+    ],
+    [
+      26666,
+      "L",
+      "HOOK"
+    ],
+    [
+      30000,
+      "R",
+      "HOOK"
+    ],
+    [
+      32000,
+      "R",
+      "HOOK"
+    ],
+    [
+      41500,
+      "L",
+      "UPPERCUT"
+    ],
+    [
+      43500,
+      "L",
+      "UPPERCUT"
+    ],
+    [
+      47500,
+      "R",
+      "UPPERCUT"
+    ],
+    [
+      49500,
+      "R",
+      "UPPERCUT"
+    ]
+  ],
+  "test_gt_events_excluded_from_training": [
+    [
+      13133,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      18400,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      28500,
+      "L",
+      "HOOK"
+    ],
+    [
+      34000,
+      "R",
+      "HOOK"
+    ],
+    [
+      45500,
+      "L",
+      "UPPERCUT"
+    ],
+    [
+      51500,
+      "R",
+      "UPPERCUT"
+    ],
+    [
+      76500,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      76933,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      78200,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      78900,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      80000,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      80466,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      81800,
+      "L",
+      "STRAIGHT"
+    ],
+    [
+      82366,
+      "R",
+      "STRAIGHT"
+    ],
+    [
+      83000,
+      "L",
+      "HOOK"
+    ]
+  ],
+  "purge_radius_ms": 2500,
+  "dataset_stats": {
+    "n_train_gt_events": 14,
+    "n_test_gt_events_excluded": 15,
+    "purge_radius_ms": 2500,
+    "n_positive_base_windows_kept": 13,
+    "n_positive_anchor_candidates_purged": 29,
+    "n_negative_base_windows_kept": 92,
+    "n_negative_candidates_purged": 21,
+    "n_total_augmented_train_samples": 1338,
+    "class_counts": {
+      "IDLE": 708,
+      "LEFT_JAB": 63,
+      "RIGHT_JAB": 63,
+      "LEFT_HOOK": 27,
+      "RIGHT_HOOK": 27,
+      "LEFT_UPPERCUT": 27,
+      "RIGHT_UPPERCUT": 27,
+      "OTHER": 396
+    }
+  },
+  "augmentation": {
+    "mirror": "좌우 반전 (train_tcn_benchmark_overfit.py와 동일)",
+    "anchor_time_jitter_ms": [
+      -150,
+      0,
+      150
+    ],
+    "time_warp_speed_factors": [
+      0.9,
+      1.0,
+      1.1
+    ],
+    "gaussian_jitter_sigma_scale": 0.05,
+    "n_noise_replicas_positive": 2,
+    "n_noise_replicas_negative": 1,
+    "negative_sampling_stride_ms": 400
+  },
+  "train_hyperparams": {
+    "epochs": 60,
+    "batch_size": 16,
+    "lr": 0.001,
+    "device": "cpu"
+  },
+  "train_set_self_accuracy": 1.0
+}
