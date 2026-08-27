@@ -1,6 +1,20 @@
 {
   "runs": [
     {
+      "version": "v0_iter2_hands",
+      "timestamp": "2026-08-27 13:56:00",
+      "f1": 0.214,
+      "precision": 0.1198,
+      "recall": 1.0,
+      "tp": 29,
+      "fp": 213,
+      "fn": 0,
+      "non_action_fp": 114,
+      "timing_err_ms": 101.2,
+      "config_path": "iter2/server/templates/fighter_client.html (3D Hand Velocity)",
+      "run_dir": "C:\\\\hong\\\\project-4\\\\iter4\\\\eval\\\\runs\\\\v0_iter2_hands"
+    },
+    {
       "version": "v1_baseline",
       "timestamp": "2026-08-27 11:54:09",
       "f1": 0.3666,
