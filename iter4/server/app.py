@@ -60,8 +60,8 @@ class ArenaGameManager:
 
     def reset_game(self):
         self.fighters = {
-            "client_1": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [-12, 0, 0], "world_x": -12, "world_z": 0, "yaw": -1.5708, "rage": 0.0},
-            "client_2": {"name": "Cyan Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [12, 0, 0], "world_x": 12, "world_z": 0, "yaw": 1.5708, "rage": 0.0},
+            "client_1": {"name": "Blue Boxer", "color": "#00E5FF", "hp": 100, "score": 0, "action": "IDLE", "pos": [-12, 0, 0], "world_x": -12, "world_z": 0, "yaw": -1.5708, "rage": 0.0},
+            "client_2": {"name": "Red Boxer", "color": "#FF3366", "hp": 100, "score": 0, "action": "IDLE", "pos": [12, 0, 0], "world_x": 12, "world_z": 0, "yaw": 1.5708, "rage": 0.0},
             "client_3": {"name": "Gold Mage", "color": "#FFD700", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, -12], "world_x": 0, "world_z": -12, "yaw": 3.1416, "rage": 0.0},
             "client_4": {"name": "Green Striker", "color": "#00FF66", "hp": 100, "score": 0, "action": "IDLE", "pos": [0, 0, 12], "world_x": 0, "world_z": 12, "yaw": 0, "rage": 0.0},
         }

@@ -54,7 +54,11 @@ const fightersJson = (hps) => JSON.stringify({
 
   const title = await p.evaluate(`document.getElementById('result-winner-title').innerText`);
   const sub = await p.evaluate(`document.getElementById('result-sub').innerText`);
-  ck('생존자가 승자로 표시된다', String(title).includes('Red Boxer'), title);
+  // 이름을 하드코딩하지 않는다 — 슬롯 색·이름은 바뀔 수 있다(실제로 바뀌었다).
+  // 검사하려는 것은 "생존자가 승자로 뜨는가"이지 그 사람의 이름이 아니다.
+  const survivorName = await p.evaluate(`fighterConfigs['client_1'].name`);
+  ck('생존자가 승자로 표시된다', String(title).includes(survivorName),
+     `${title} (기대: ${survivorName})`);
   ck('사유가 LAST MAN STANDING', String(sub).includes('LAST MAN STANDING'), sub);
 
   console.log('');

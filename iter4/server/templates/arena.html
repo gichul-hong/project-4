@@ -175,13 +175,13 @@
 
   <!-- Top HUD: 4-Player Health Bars & Match Clock -->
   <div class="hud-top">
-    <div class="fighter-card" id="card-client_1" style="--f-color: var(--red);">
+    <div class="fighter-card" id="card-client_1" style="--f-color: var(--cyan);">
       <div class="fighter-head"><span>🥊 User 1 (Red)</span><span id="hp-text-client_1">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_1"></div></div>
       <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_1"></div></div>
       <div class="action-badge"><span>Action:</span><b id="act-client_1">IDLE</b></div>
     </div>
-    <div class="fighter-card" id="card-client_2" style="--f-color: var(--cyan);">
+    <div class="fighter-card" id="card-client_2" style="--f-color: var(--red);">
       <div class="fighter-head"><span>🥊 User 2 (Cyan)</span><span id="hp-text-client_2">100 HP</span></div>
       <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-bar-client_2"></div></div>
       <div class="rage-bg"><div class="rage-fill" id="rage-bar-client_2"></div></div>
@@ -325,8 +325,8 @@
 
     // --- 2. 4인 3D 파이터 아바타 생성 (관절형 휴머노이드, baseYaw = 링 중앙 마주보기) ---
     const fighterConfigs = {
-      "client_1": { color: 0xff3366, name: "Red Boxer", pos: [-12, 0, 0], baseYaw: Math.PI / 2 },
-      "client_2": { color: 0x00e5ff, name: "Cyan Boxer", pos: [12, 0, 0], baseYaw: -Math.PI / 2 },
+      "client_1": { color: 0x00e5ff, name: "Blue Boxer", pos: [-12, 0, 0], baseYaw: Math.PI / 2 },
+      "client_2": { color: 0xff3366, name: "Red Boxer", pos: [12, 0, 0], baseYaw: -Math.PI / 2 },
       "client_3": { color: 0xffd700, name: "Gold Mage", pos: [0, 0, -12], baseYaw: 0 },
       "client_4": { color: 0x00ff66, name: "Green Striker", pos: [0, 0, 12], baseYaw: Math.PI }
     };

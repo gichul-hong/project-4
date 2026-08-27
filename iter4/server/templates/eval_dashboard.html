@@ -349,18 +349,21 @@ cornerPositions.forEach(([px, pz]) => {
 const hitFx = window.createHitEffects ? window.createHitEffects(scene) : null;
 
 // ==================== 2. 실제 Arena 정품 3D 복서 아바타 생성 ====================
-let myFighter = null;    // Red Boxer (플레이어)
-let dummyOpponent = null; // Cyan Boxer (상대방 타겟)
+// 플레이어 아바타는 **스켈레톤 오버레이와 같은 색**(#00E5FF)으로 맞춘다.
+// 왼쪽 영상 위에 그려지는 관절 선이 파랑인데 아바타만 빨강이면, 둘이 같은 사람을
+// 나타낸다는 게 한눈에 안 읽힌다. 상대(더미)는 대비되는 색으로 떨어뜨린다.
+let myFighter = null;    // Blue Boxer (플레이어 — 스켈레톤과 동색)
+let dummyOpponent = null; // Red Boxer (상대방 타겟)
 
 if (typeof window.createHumanoid === 'function') {
   // 1) 내 복서 (Red Boxer - 정면 마주보기)
-  myFighter = window.createHumanoid(0xff3366);
+  myFighter = window.createHumanoid(0x00e5ff);   // 스켈레톤 라인 #00E5FF 와 동일
   myFighter.group.position.set(0, 0, 1.2);
   myFighter.group.rotation.y = Math.PI; // 정면 마주보기
   scene.add(myFighter.group);
 
   // 2) 상대방 복서 (Cyan Boxer 더미)
-  dummyOpponent = window.createHumanoid(0x00e5ff);
+  dummyOpponent = window.createHumanoid(0xff3366);
   dummyOpponent.group.position.set(0, 0, -3.8);
   dummyOpponent.group.rotation.y = 0; // 나를 마주봄
   scene.add(dummyOpponent.group);
