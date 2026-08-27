@@ -16,7 +16,7 @@
     },
     {
       "version": "v1_baseline",
-      "timestamp": "2026-08-27 11:54:09",
+      "timestamp": "2026-08-27 14:19:27",
       "f1": 0.3666,
       "precision": 0.3548,
       "recall": 0.3793,
@@ -25,12 +25,15 @@
       "fn": 18,
       "non_action_fp": 9,
       "timing_err_ms": 169.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v1_baseline.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v1_baseline"
     },
     {
       "version": "v2_anti_sway",
-      "timestamp": "2026-08-27 11:54:12",
+      "timestamp": "2026-08-27 14:23:10",
       "f1": 0.3461,
       "precision": 0.3913,
       "recall": 0.3103,
@@ -39,12 +42,15 @@
       "fn": 20,
       "non_action_fp": 4,
       "timing_err_ms": 229.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v2_anti_sway.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v2_anti_sway"
     },
     {
       "version": "v3_iter4_eval",
-      "timestamp": "2026-08-27 11:54:14",
+      "timestamp": "2026-08-27 14:23:13",
       "f1": 0.3704,
       "precision": 0.4,
       "recall": 0.3448,
@@ -53,12 +59,15 @@
       "fn": 19,
       "non_action_fp": 5,
       "timing_err_ms": 206.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v3_iter4_eval.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v3_iter4_eval"
     },
     {
       "version": "v4_tcn_hybrid",
-      "timestamp": "2026-08-27 11:54:19",
+      "timestamp": "2026-08-27 14:23:17",
       "f1": 0.3666,
       "precision": 0.3548,
       "recall": 0.3793,
@@ -67,12 +76,15 @@
       "fn": 18,
       "non_action_fp": 9,
       "timing_err_ms": 169.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v4_tcn_hybrid.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v4_tcn_hybrid"
     },
     {
       "version": "v5_tcn_optimized",
-      "timestamp": "2026-08-27 11:54:20",
+      "timestamp": "2026-08-27 14:23:19",
       "f1": 0.3793,
       "precision": 0.3793,
       "recall": 0.3793,
@@ -81,6 +93,9 @@
       "fn": 18,
       "non_action_fp": 7,
       "timing_err_ms": 169.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v5_tcn_optimized.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v5_tcn_optimized"
     },
@@ -107,7 +122,10 @@
         "fn": 5,
         "kind_accuracy": 0.6,
         "n_test_gt_events": 15
-      }
+      },
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9
     },
     {
       "version": "v5c_tcn_hybrid_gate",
@@ -121,7 +139,65 @@
       "non_action_fp": 0,
       "timing_err_ms": 155.2,
       "config_path": "C:\\DS_Team2\\project-4\\iter4\\eval\\configs\\v5c_tcn_hybrid_gate.json",
-      "run_dir": "C:\\DS_Team2\\project-4\\iter4\\eval\\runs\\v5c_tcn_hybrid_gate"
+      "run_dir": "C:\\DS_Team2\\project-4\\iter4\\eval\\runs\\v5c_tcn_hybrid_gate",
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9
+    },
+    {
+      "version": "v5b_tcn_trigger",
+      "timestamp": "unknown (backfilled)",
+      "f1": 0.32,
+      "precision": 0.2,
+      "recall": 0.8,
+      "tp": 12,
+      "fp": 48,
+      "fn": 3,
+      "non_action_fp": null,
+      "timing_err_ms": 130.6,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
+      "config_path": null,
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v5b_tcn_trigger",
+      "backfilled": true
+    },
+    {
+      "version": "v6_tcn_overfit_hong",
+      "timestamp": "unknown (backfilled)",
+      "f1": 0.3793,
+      "precision": 0.3793,
+      "recall": 0.3793,
+      "tp": 11,
+      "fp": 18,
+      "fn": 18,
+      "non_action_fp": 7,
+      "timing_err_ms": 169.7,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
+      "config_path": null,
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v6_tcn_overfit_hong",
+      "backfilled": true
+    },
+    {
+      "version": "v6c_tcn_hybrid_gate",
+      "timestamp": "unknown (backfilled)",
+      "f1": 0.7143,
+      "precision": 0.7692,
+      "recall": 0.6667,
+      "tp": 10,
+      "fp": 3,
+      "fn": 5,
+      "non_action_fp": null,
+      "timing_err_ms": 183.6,
+      "footwork_recall_proxy": 75.4,
+      "static_fp_proxy": 11.2,
+      "guard_coverage_pct": 74.9,
+      "config_path": null,
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v6c_tcn_hybrid_gate",
+      "backfilled": true,
+      "note": "backfilled from metrics_test_only.json (leakage-free test region)"
     }
   ]
 }

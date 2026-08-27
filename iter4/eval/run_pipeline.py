@@ -118,6 +118,24 @@ def load_predictions(csv_path: Path):
     return punches
 
 
+# 90초 프로토콜 기본 phase 정의. calculate_phase_metrics 와 movement 요약이
+# 공유한다. 예전에는 calculate_phase_metrics 안에만 있어서 movement 쪽이
+# phase_defs=None 을 받으면 phase_analysis 를 스킵해버리는 버그가 있었다.
+DEFAULT_90S_PHASES = [
+    (0, 6, "1. 준비 (Calibration)", False),
+    (6, 19, "2. 직선 펀치 (Straight)", True),
+    (19, 23, "⏸ 숨고르기 (Rest 1)", False),
+    (23, 35, "3. 훅 펀치 (Hook)", True),
+    (35, 40, "⏸ 숨고르기 (Rest 2)", False),
+    (40, 52, "4. 어퍼컷 (Uppercut)", True),
+    (52, 57, "⏸ 숨고르기 (Rest 3)", False),
+    (57, 70, "5. 풋워크 (Footwork)", False),
+    (70, 75, "⏸ 숨고르기 (Rest 4)", False),
+    (75, 85, "6. 실전 콤보 (Combos)", True),
+    (85, 90, "7. 마무리 (Cooldown)", False),
+]
+
+
 def calculate_phase_metrics(punches, duration_sec, matched_pred_indices=None, phases=None):
     """구간별 검출 통계와 비동작 구간의 순수 오검출(FP) 수를 계산한다.
 
@@ -141,19 +159,7 @@ def calculate_phase_metrics(punches, duration_sec, matched_pred_indices=None, ph
         # 기본값: iter4/eval/video/benchmark_90s_protocol.
         # 라벨 실제 t_ms 를 감싸도록 조정: straight 마지막 = 18400ms → phase 2
         # 종료를 19s 로, 첫 훅 = 24500ms → phase 3 시작은 23s 유지.
-        phases = [
-            (0, 6, "1. 준비 (Calibration)", False),
-            (6, 19, "2. 직선 펀치 (Straight)", True),
-            (19, 23, "⏸ 숨고르기 (Rest 1)", False),
-            (23, 35, "3. 훅 펀치 (Hook)", True),
-            (35, 40, "⏸ 숨고르기 (Rest 2)", False),
-            (40, 52, "4. 어퍼컷 (Uppercut)", True),
-            (52, 57, "⏸ 숨고르기 (Rest 3)", False),
-            (57, 70, "5. 풋워크 (Footwork)", False),
-            (70, 75, "⏸ 숨고르기 (Rest 4)", False),
-            (75, 85, "6. 실전 콤보 (Combos)", True),
-            (85, 90, "7. 마무리 (Cooldown)", False),
-        ]
+        phases = DEFAULT_90S_PHASES
 
     rest_fp_count = 0
     footwork_fp_count = 0
@@ -315,6 +321,9 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
             registry = {"runs": []}
 
     tp, fp, fn = metrics.get("tp", 0), metrics.get("fp", 0), metrics.get("fn", 0)
+    # movement 지표는 있으면 실린다. 없으면 (초기 버전 재실행 전) None.
+    movement = metrics.get("movement") or {}
+    mv_pa = movement.get("phase_analysis") or {}
     entry = {
         "version": version_tag,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -326,6 +335,9 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
         "fn": fn,
         "non_action_fp": phase_metrics.get("non_action_fp_total", 0),
         "timing_err_ms": metrics.get("timing_error_ms_mean", 0.0),
+        "footwork_recall_proxy": mv_pa.get("footwork_recall_proxy"),
+        "static_fp_proxy": mv_pa.get("static_fp_proxy"),
+        "guard_coverage_pct": movement.get("guard_coverage_pct"),
         "config_path": str(config_path) if config_path else None,
         "run_dir": str(runs_dir)
     }
@@ -408,6 +420,24 @@ def main():
     inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine, tcn_model_dir=tcn_model_dir)
     punches = load_predictions(csv_path)
 
+    # Stage 2.5: Movement / Rotation / Guard 상태 판정
+    # 펀치는 이벤트, 무빙은 프레임 상태다. 채점 파이프라인이 원래 벤치마크에는
+    # 무빙을 표시하지 못했는데 (benchmark_labels.json 은 punches 만 갖는다),
+    # 대시보드에 "펀치 + 무빙 + 가드" 를 함께 뿌리려면 랜드마크 캐시에서 무빙
+    # timeline 을 한 번 더 뽑아야 한다. FullActionEvaluator 는 이미 punch_core.js
+    # 의 TUNE 과 동기화된 상태로 존재하므로 그대로 재사용.
+    try:
+        from movement_pass import run_movement_pass, summarize_movement
+        movement_timeline_path = out_dir / "movement_timeline.jsonl"
+        print("⚙️ [Stage 2.5] 무빙/회전/가드 상태 판정 중...")
+        movement_timeline = run_movement_pass(jsonl_path, movement_timeline_path)
+        print(f"✅ [Stage 2.5] 무빙 timeline {len(movement_timeline)} 프레임 → {movement_timeline_path.name}")
+    except Exception as exc:
+        # 무빙 pass 는 부가 산출물이므로 실패해도 파이프라인은 계속 간다.
+        # (라벨/펀치 채점은 이 실패와 무관하다.)
+        print(f"⚠️ [Stage 2.5] 무빙 pass 실패 (무시하고 진행): {exc}")
+        movement_timeline = []
+
     # Stage 3: Scoring & Metrics
     metrics = {"version": version_tag, "source_video": str(video_path), "predicted_punches": len(punches)}
     if labels_path and labels_path.exists():
@@ -439,6 +469,30 @@ def main():
             phases=phase_defs,
         )
     metrics["phase_analysis"] = phase_metrics
+
+    # movement 요약 — phase_defs 가 None(=labels 파일에 phases 필드 없음, case
+    # 는 알려진 90초 프로토콜) 이면 DEFAULT_90S_PHASES 를 그대로 쓴다. 빈
+    # 리스트(=알려지지 않은 case) 면 phase_analysis 없이 전체 통계만 저장.
+    if movement_timeline:
+        try:
+            if phase_defs is None:
+                mv_phases = DEFAULT_90S_PHASES
+            elif phase_defs == []:
+                mv_phases = None  # 명시적 스킵
+            else:
+                mv_phases = phase_defs
+            movement_summary = summarize_movement(movement_timeline, phases=mv_phases)
+        except Exception as exc:
+            print(f"⚠️ [Stage 2.5] movement 요약 실패: {exc}")
+            movement_summary = {"error": str(exc)}
+        metrics["movement"] = movement_summary
+        # 콘솔에 눈에 띄는 두 지표만 출력
+        pa = movement_summary.get("phase_analysis") or {}
+        fw = pa.get("footwork_recall_proxy")
+        sf = pa.get("static_fp_proxy")
+        gc = movement_summary.get("guard_coverage_pct")
+        if fw is not None or sf is not None:
+            print(f"🚶 [Stage 2.5] footwork_recall_proxy={fw}%  static_fp_proxy={sf}%  guard_coverage={gc}%")
 
     # Save metrics JSON
     metrics_json_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
