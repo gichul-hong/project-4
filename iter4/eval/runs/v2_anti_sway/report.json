@@ -76,12 +76,68 @@
       "timing_error_ms_mean": 229.7,
       "timing_error_ms_max": 367,
       "confusion": {
-        "STRAIGHT->STRAIGHT": 3,
-        "HOOK->STRAIGHT": 1,
-        "UPPERCUT->STRAIGHT": 2,
         "STRAIGHT->HOOK": 2,
-        "STRAIGHT->UPPERCUT": 1
-      }
+        "STRAIGHT->STRAIGHT": 3,
+        "STRAIGHT->UPPERCUT": 1,
+        "UPPERCUT->STRAIGHT": 2,
+        "HOOK->STRAIGHT": 1
+      },
+      "matches": [
+        {
+          "pred_index": 18,
+          "pred_t_ms": 76533,
+          "label_t_ms": 76500,
+          "dt_ms": 33
+        },
+        {
+          "pred_index": 20,
+          "pred_t_ms": 79000,
+          "label_t_ms": 78900,
+          "dt_ms": 100
+        },
+        {
+          "pred_index": 22,
+          "pred_t_ms": 81666,
+          "label_t_ms": 81800,
+          "dt_ms": 134
+        },
+        {
+          "pred_index": 21,
+          "pred_t_ms": 80266,
+          "label_t_ms": 80466,
+          "dt_ms": 200
+        },
+        {
+          "pred_index": 2,
+          "pred_t_ms": 16900,
+          "label_t_ms": 17200,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 10,
+          "pred_t_ms": 43200,
+          "label_t_ms": 43500,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 13,
+          "pred_t_ms": 45800,
+          "label_t_ms": 45500,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 4,
+          "pred_t_ms": 24833,
+          "label_t_ms": 24500,
+          "dt_ms": 333
+        },
+        {
+          "pred_index": 19,
+          "pred_t_ms": 77833,
+          "label_t_ms": 78200,
+          "dt_ms": 367
+        }
+      ]
     }
   },
   "punches": [

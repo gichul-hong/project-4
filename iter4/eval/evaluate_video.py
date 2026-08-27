@@ -15,6 +15,8 @@ import csv
 import json
 import math
 import statistics
+import sys
+import shutil
 from pathlib import Path
 
 # cv2/mediapipe 는 **영상을 디코딩할 때만** 필요하다.
@@ -697,6 +699,15 @@ def main():
     tcn_clf = None
     if args.engine == "tcn":
         tcn_clf = TCNMotionClassifier()
+        # TCN 로드 실패를 조용히 룰베이스로 폴백하면 registry가 오염된다
+        # ("v4_tcn_hybrid" 인데 실제로는 rule 결과가 저장되는 상황).
+        # --engine tcn 을 명시적으로 요청했는데 모델이 없으면 즉시 중단한다.
+        if tcn_clf.model is None:
+            raise SystemExit(
+                "TCN 엔진 요청됨(--engine tcn) 하지만 모델 로드 실패. "
+                "가중치/스케일러 경로와 torch 설치를 확인하세요. "
+                "registry 오염을 막기 위해 파이프라인을 중단합니다."
+            )
 
     if not args.video and not args.landmarks:
         print("영상 경로 또는 --landmarks JSONL 중 하나는 필수")

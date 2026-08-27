@@ -8,34 +8,40 @@
     "windows_expired_without_fire": 28,
     "by_action": {
       "RIGHT_CROSS": {
-        "count": 9,
-        "speed_kmh_mean": 11.59,
-        "reach_n_mean": 1.104,
-        "elbow_deg_mean": 104.9
+        "count": 8,
+        "speed_kmh_mean": 11.32,
+        "reach_n_mean": 1.046,
+        "elbow_deg_mean": 102.4
       },
       "LEFT_JAB": {
-        "count": 15,
-        "speed_kmh_mean": 9.31,
-        "reach_n_mean": 1.109,
-        "elbow_deg_mean": 94.6
+        "count": 13,
+        "speed_kmh_mean": 9.35,
+        "reach_n_mean": 1.103,
+        "elbow_deg_mean": 94.1
+      },
+      "LEFT_UPPERCUT": {
+        "count": 3,
+        "speed_kmh_mean": 8.23,
+        "reach_n_mean": 1.069,
+        "elbow_deg_mean": 88.9
       },
       "RIGHT_HOOK": {
         "count": 4,
-        "speed_kmh_mean": 9.53,
-        "reach_n_mean": 1.077,
-        "elbow_deg_mean": 107.5
-      },
-      "LEFT_HOOK": {
-        "count": 2,
-        "speed_kmh_mean": 6.67,
-        "reach_n_mean": 0.915,
-        "elbow_deg_mean": 70.4
+        "speed_kmh_mean": 10.63,
+        "reach_n_mean": 1.091,
+        "elbow_deg_mean": 104.1
       },
       "RIGHT_UPPERCUT": {
+        "count": 2,
+        "speed_kmh_mean": 8.79,
+        "reach_n_mean": 1.226,
+        "elbow_deg_mean": 113.5
+      },
+      "LEFT_HOOK": {
         "count": 1,
-        "speed_kmh_mean": 8.27,
-        "reach_n_mean": 0.941,
-        "elbow_deg_mean": 87.9
+        "speed_kmh_mean": 6.67,
+        "reach_n_mean": 0.916,
+        "elbow_deg_mean": 69.8
       }
     },
     "by_side": {
@@ -55,11 +61,11 @@
     },
     "ppm": 21.0,
     "form_checks_pct": {
-      "straight_full_extension(elbow>150)": 4.2,
+      "straight_full_extension(elbow>150)": 4.8,
       "hook_low_elbow(<=165)": 100.0,
       "uppercut_low_elbow(<=155)": 100.0,
       "fired_at_or_beyond_095_reach": 100.0,
-      "confident_classification(margin>=0.15)": 83.9
+      "confident_classification(margin>=0.15)": 90.3
     },
     "scoring": {
       "tolerance_ms": 400,
@@ -71,17 +77,86 @@
       "precision": 0.3548,
       "recall": 0.3793,
       "f1": 0.3666,
-      "kind_accuracy": 0.3636,
+      "kind_accuracy": 0.4545,
       "side_accuracy": 0.3636,
       "timing_error_ms_mean": 169.7,
       "timing_error_ms_max": 333,
       "confusion": {
-        "STRAIGHT->STRAIGHT": 4,
-        "HOOK->STRAIGHT": 1,
-        "UPPERCUT->STRAIGHT": 3,
-        "STRAIGHT->HOOK": 2,
-        "STRAIGHT->UPPERCUT": 1
-      }
+        "STRAIGHT->STRAIGHT": 5,
+        "STRAIGHT->HOOK": 1,
+        "STRAIGHT->UPPERCUT": 1,
+        "UPPERCUT->STRAIGHT": 2,
+        "UPPERCUT->HOOK": 1,
+        "HOOK->UPPERCUT": 1
+      },
+      "matches": [
+        {
+          "pred_index": 2,
+          "pred_t_ms": 13133,
+          "label_t_ms": 13133,
+          "dt_ms": 0
+        },
+        {
+          "pred_index": 1,
+          "pred_t_ms": 11166,
+          "label_t_ms": 11133,
+          "dt_ms": 33
+        },
+        {
+          "pred_index": 29,
+          "pred_t_ms": 79966,
+          "label_t_ms": 80000,
+          "dt_ms": 34
+        },
+        {
+          "pred_index": 26,
+          "pred_t_ms": 76433,
+          "label_t_ms": 76500,
+          "dt_ms": 67
+        },
+        {
+          "pred_index": 28,
+          "pred_t_ms": 78800,
+          "label_t_ms": 78900,
+          "dt_ms": 100
+        },
+        {
+          "pred_index": 30,
+          "pred_t_ms": 81666,
+          "label_t_ms": 81800,
+          "dt_ms": 134
+        },
+        {
+          "pred_index": 17,
+          "pred_t_ms": 47766,
+          "label_t_ms": 47500,
+          "dt_ms": 266
+        },
+        {
+          "pred_index": 4,
+          "pred_t_ms": 16900,
+          "label_t_ms": 17200,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 13,
+          "pred_t_ms": 43200,
+          "label_t_ms": 43500,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 16,
+          "pred_t_ms": 45800,
+          "label_t_ms": 45500,
+          "dt_ms": 300
+        },
+        {
+          "pred_index": 7,
+          "pred_t_ms": 24833,
+          "label_t_ms": 24500,
+          "dt_ms": 333
+        }
+      ]
     }
   },
   "punches": [
@@ -131,15 +206,15 @@
       "t_ms": 14000,
       "frame": 421,
       "side": "L",
-      "action": "LEFT_JAB",
-      "kind": "STRAIGHT",
+      "action": "LEFT_UPPERCUT",
+      "kind": "UPPERCUT",
       "speed_ms": 2.118,
       "speed_kmh": 7.62,
       "reach_n": 1.086,
       "elbow_deg": 101.2,
       "vx": 0.088,
       "vy": 0.257,
-      "conf_margin": 0.885
+      "conf_margin": 0.603
     },
     {
       "t_ms": 16900,
@@ -187,15 +262,15 @@
       "t_ms": 24833,
       "frame": 746,
       "side": "R",
-      "action": "RIGHT_CROSS",
-      "kind": "STRAIGHT",
+      "action": "RIGHT_UPPERCUT",
+      "kind": "UPPERCUT",
       "speed_ms": 2.585,
       "speed_kmh": 9.3,
       "reach_n": 1.51,
       "elbow_deg": 139.1,
       "vx": 0.036,
       "vy": -1.12,
-      "conf_margin": -0.221
+      "conf_margin": 0.45
     },
     {
       "t_ms": 26133,
@@ -215,29 +290,29 @@
       "t_ms": 27466,
       "frame": 825,
       "side": "L",
-      "action": "LEFT_HOOK",
-      "kind": "HOOK",
+      "action": "LEFT_UPPERCUT",
+      "kind": "UPPERCUT",
       "speed_ms": 1.851,
       "speed_kmh": 6.66,
       "reach_n": 0.913,
       "elbow_deg": 71.1,
       "vx": 1.444,
       "vy": 1.157,
-      "conf_margin": 1.173
+      "conf_margin": 0.784
     },
     {
       "t_ms": 29000,
       "frame": 871,
       "side": "L",
-      "action": "LEFT_JAB",
-      "kind": "STRAIGHT",
+      "action": "LEFT_UPPERCUT",
+      "kind": "UPPERCUT",
       "speed_ms": 2.891,
       "speed_kmh": 10.41,
       "reach_n": 1.209,
       "elbow_deg": 94.4,
       "vx": 1.04,
       "vy": 1.213,
-      "conf_margin": -0.002
+      "conf_margin": 0.498
     },
     {
       "t_ms": 40833,
@@ -265,21 +340,21 @@
       "elbow_deg": 140.3,
       "vx": -0.825,
       "vy": 0.397,
-      "conf_margin": 0.77
+      "conf_margin": 0.762
     },
     {
       "t_ms": 43200,
       "frame": 1297,
       "side": "R",
-      "action": "RIGHT_CROSS",
-      "kind": "STRAIGHT",
+      "action": "RIGHT_HOOK",
+      "kind": "HOOK",
       "speed_ms": 2.373,
       "speed_kmh": 8.54,
       "reach_n": 1.287,
       "elbow_deg": 147.7,
       "vx": 0.547,
       "vy": 1.015,
-      "conf_margin": 0.358
+      "conf_margin": 0.458
     },
     {
       "t_ms": 43966,
@@ -391,7 +466,7 @@
       "elbow_deg": 89.6,
       "vx": 0.002,
       "vy": -0.167,
-      "conf_margin": 0.722
+      "conf_margin": 0.529
     },
     {
       "t_ms": 66533,
@@ -405,21 +480,21 @@
       "elbow_deg": 86.6,
       "vx": -0.012,
       "vy": 0.014,
-      "conf_margin": 0.981
+      "conf_margin": 0.43
     },
     {
       "t_ms": 67766,
       "frame": 2034,
       "side": "R",
-      "action": "RIGHT_CROSS",
-      "kind": "STRAIGHT",
+      "action": "RIGHT_HOOK",
+      "kind": "HOOK",
       "speed_ms": 3.491,
       "speed_kmh": 12.57,
       "reach_n": 0.917,
       "elbow_deg": 57.9,
       "vx": 1.028,
       "vy": 0.29,
-      "conf_margin": 0.18
+      "conf_margin": 0.681
     },
     {
       "t_ms": 69000,
@@ -433,7 +508,7 @@
       "elbow_deg": 92.0,
       "vx": -0.028,
       "vy": 0.166,
-      "conf_margin": 0.975
+      "conf_margin": 0.504
     },
     {
       "t_ms": 71233,
@@ -467,15 +542,15 @@
       "t_ms": 77666,
       "frame": 2331,
       "side": "R",
-      "action": "RIGHT_HOOK",
-      "kind": "HOOK",
+      "action": "RIGHT_CROSS",
+      "kind": "STRAIGHT",
       "speed_ms": 2.699,
       "speed_kmh": 9.72,
       "reach_n": 0.915,
       "elbow_deg": 109.7,
       "vx": 1.688,
       "vy": -0.962,
-      "conf_margin": 0.468
+      "conf_margin": 0.441
     },
     {
       "t_ms": 78800,
@@ -495,15 +570,15 @@
       "t_ms": 79966,
       "frame": 2400,
       "side": "R",
-      "action": "RIGHT_HOOK",
-      "kind": "HOOK",
+      "action": "RIGHT_CROSS",
+      "kind": "STRAIGHT",
       "speed_ms": 1.935,
       "speed_kmh": 6.97,
       "reach_n": 1.23,
       "elbow_deg": 109.8,
       "vx": 1.176,
       "vy": 0.843,
-      "conf_margin": 0.693
+      "conf_margin": 0.7
     },
     {
       "t_ms": 81666,

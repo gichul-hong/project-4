@@ -14,11 +14,73 @@
   "timing_error_ms_max": 367,
   "confusion": {
     "STRAIGHT->STRAIGHT": 4,
-    "HOOK->STRAIGHT": 1,
-    "UPPERCUT->STRAIGHT": 2,
     "STRAIGHT->HOOK": 2,
-    "STRAIGHT->UPPERCUT": 1
+    "STRAIGHT->UPPERCUT": 1,
+    "UPPERCUT->STRAIGHT": 2,
+    "HOOK->STRAIGHT": 1
   },
+  "matches": [
+    {
+      "pred_index": 1,
+      "pred_t_ms": 13133,
+      "label_t_ms": 13133,
+      "dt_ms": 0
+    },
+    {
+      "pred_index": 20,
+      "pred_t_ms": 76533,
+      "label_t_ms": 76500,
+      "dt_ms": 33
+    },
+    {
+      "pred_index": 22,
+      "pred_t_ms": 79000,
+      "label_t_ms": 78900,
+      "dt_ms": 100
+    },
+    {
+      "pred_index": 24,
+      "pred_t_ms": 81666,
+      "label_t_ms": 81800,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 23,
+      "pred_t_ms": 80266,
+      "label_t_ms": 80466,
+      "dt_ms": 200
+    },
+    {
+      "pred_index": 3,
+      "pred_t_ms": 16900,
+      "label_t_ms": 17200,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 11,
+      "pred_t_ms": 43200,
+      "label_t_ms": 43500,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 14,
+      "pred_t_ms": 45800,
+      "label_t_ms": 45500,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 5,
+      "pred_t_ms": 24833,
+      "label_t_ms": 24500,
+      "dt_ms": 333
+    },
+    {
+      "pred_index": 21,
+      "pred_t_ms": 77833,
+      "label_t_ms": 78200,
+      "dt_ms": 367
+    }
+  ],
   "version": "v3_iter4_eval",
   "source_video": "C:\\hong\\project-4\\iter4\\eval\\video\\benchmark.mp4",
   "phase_analysis": {
@@ -31,13 +93,15 @@
         "range": "00~06s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
         "phase": "2. 직선 펀치 (Straight)",
-        "range": "06~18s",
+        "range": "06~19s",
         "is_action": true,
         "detected": 4,
+        "fp": 0,
         "punches": [
           "RIGHT_CROSS",
           "LEFT_JAB",
@@ -47,9 +111,10 @@
       },
       {
         "phase": "⏸ 숨고르기 (Rest 1)",
-        "range": "18~23s",
+        "range": "19~23s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
@@ -57,6 +122,7 @@
         "range": "23~35s",
         "is_action": true,
         "detected": 5,
+        "fp": 0,
         "punches": [
           "LEFT_JAB",
           "RIGHT_CROSS",
@@ -70,6 +136,7 @@
         "range": "35~40s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
@@ -77,6 +144,7 @@
         "range": "40~52s",
         "is_action": true,
         "detected": 6,
+        "fp": 0,
         "punches": [
           "RIGHT_HOOK",
           "RIGHT_CROSS",
@@ -91,6 +159,7 @@
         "range": "52~57s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       },
       {
@@ -98,6 +167,7 @@
         "range": "57~70s",
         "is_action": false,
         "detected": 4,
+        "fp": 4,
         "punches": [
           "LEFT_JAB",
           "LEFT_JAB",
@@ -110,6 +180,7 @@
         "range": "70~75s",
         "is_action": false,
         "detected": 1,
+        "fp": 1,
         "punches": [
           "LEFT_JAB"
         ]
@@ -119,6 +190,7 @@
         "range": "75~85s",
         "is_action": true,
         "detected": 5,
+        "fp": 0,
         "punches": [
           "RIGHT_HOOK",
           "LEFT_JAB",
@@ -132,6 +204,7 @@
         "range": "85~90s",
         "is_action": false,
         "detected": 0,
+        "fp": 0,
         "punches": []
       }
     ]

@@ -2,7 +2,7 @@
   "runs": [
     {
       "version": "v1_baseline",
-      "timestamp": "2026-08-27 10:33:09",
+      "timestamp": "2026-08-27 11:54:09",
       "f1": 0.3666,
       "precision": 0.3548,
       "recall": 0.3793,
@@ -16,7 +16,7 @@
     },
     {
       "version": "v2_anti_sway",
-      "timestamp": "2026-08-27 10:33:31",
+      "timestamp": "2026-08-27 11:54:12",
       "f1": 0.3461,
       "precision": 0.3913,
       "recall": 0.3103,
@@ -30,7 +30,7 @@
     },
     {
       "version": "v3_iter4_eval",
-      "timestamp": "2026-08-27 10:33:32",
+      "timestamp": "2026-08-27 11:54:14",
       "f1": 0.3704,
       "precision": 0.4,
       "recall": 0.3448,
@@ -44,7 +44,7 @@
     },
     {
       "version": "v4_tcn_hybrid",
-      "timestamp": "2026-08-27 10:33:35",
+      "timestamp": "2026-08-27 11:54:19",
       "f1": 0.3666,
       "precision": 0.3548,
       "recall": 0.3793,
@@ -58,7 +58,7 @@
     },
     {
       "version": "v5_tcn_optimized",
-      "timestamp": "2026-08-27 10:33:38",
+      "timestamp": "2026-08-27 11:54:20",
       "f1": 0.3793,
       "precision": 0.3793,
       "recall": 0.3793,
