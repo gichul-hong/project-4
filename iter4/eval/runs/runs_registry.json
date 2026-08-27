@@ -1,0 +1,74 @@
+{
+  "runs": [
+    {
+      "version": "v1_baseline",
+      "timestamp": "2026-08-26 16:55:21",
+      "f1": 0.3863,
+      "precision": 0.2881,
+      "recall": 0.5862,
+      "tp": 17,
+      "fp": 42,
+      "fn": 12,
+      "non_action_fp": 11,
+      "timing_err_ms": 111.9,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v1_baseline.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v1_baseline"
+    },
+    {
+      "version": "v2_anti_sway",
+      "timestamp": "2026-08-26 16:55:33",
+      "f1": 0.3514,
+      "precision": 0.2889,
+      "recall": 0.4483,
+      "tp": 13,
+      "fp": 32,
+      "fn": 16,
+      "non_action_fp": 6,
+      "timing_err_ms": 115.6,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v2_anti_sway.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v2_anti_sway"
+    },
+    {
+      "version": "v3_iter4_eval",
+      "timestamp": "2026-08-26 17:00:14",
+      "f1": 0.359,
+      "precision": 0.2857,
+      "recall": 0.4828,
+      "tp": 14,
+      "fp": 35,
+      "fn": 15,
+      "non_action_fp": 8,
+      "timing_err_ms": 135.9,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v3_iter4_eval.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v3_iter4_eval"
+    },
+    {
+      "version": "v4_tcn_hybrid",
+      "timestamp": "2026-08-26 17:14:59",
+      "f1": 0.3666,
+      "precision": 0.3548,
+      "recall": 0.3793,
+      "tp": 11,
+      "fp": 20,
+      "fn": 18,
+      "non_action_fp": 9,
+      "timing_err_ms": 169.7,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v4_tcn_hybrid.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v4_tcn_hybrid"
+    },
+    {
+      "version": "v5_tcn_optimized",
+      "timestamp": "2026-08-27 09:34:06",
+      "f1": 0.3793,
+      "precision": 0.3793,
+      "recall": 0.3793,
+      "tp": 11,
+      "fp": 18,
+      "fn": 18,
+      "non_action_fp": 7,
+      "timing_err_ms": 169.7,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v5_tcn_optimized.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v5_tcn_optimized"
+    }
+  ]
+}

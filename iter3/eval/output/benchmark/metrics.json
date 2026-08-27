@@ -1,0 +1,174 @@
+{
+  "tolerance_ms": 400,
+  "ground_truth": 29,
+  "predicted": 57,
+  "tp": 15,
+  "fp": 42,
+  "fn": 14,
+  "precision": 0.2632,
+  "recall": 0.5172,
+  "f1": 0.3489,
+  "kind_accuracy": 0.0667,
+  "side_accuracy": 0.4667,
+  "timing_error_ms_mean": 86.7,
+  "timing_error_ms_max": 300,
+  "confusion": {
+    "STRAIGHT->JAB": 4,
+    "HOOK->CROSS": 1,
+    "HOOK->HOOK": 1,
+    "HOOK->JAB": 1,
+    "UPPERCUT->HOOK": 1,
+    "UPPERCUT->CROSS": 2,
+    "STRAIGHT->CROSS": 3,
+    "STRAIGHT->HOOK": 2
+  },
+  "source_video": "C:\\hong\\project-4\\iter3\\eval\\video\\benchmark.mp4",
+  "phase_analysis": {
+    "rest_fp": 3,
+    "footwork_fp": 10,
+    "non_action_fp_total": 13,
+    "phases": [
+      {
+        "phase": "1. 준비 (Calibration)",
+        "range": "00~06s",
+        "is_action": false,
+        "detected": 0,
+        "punches": []
+      },
+      {
+        "phase": "2. 직선 펀치 (Straight)",
+        "range": "06~18s",
+        "is_action": true,
+        "detected": 3,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_HOOK"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 1)",
+        "range": "18~23s",
+        "is_action": false,
+        "detected": 0,
+        "punches": []
+      },
+      {
+        "phase": "3. 훅 펀치 (Hook)",
+        "range": "23~35s",
+        "is_action": true,
+        "detected": 15,
+        "punches": [
+          "RIGHT_HOOK",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "LEFT_HOOK",
+          "RIGHT_HOOK",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_HOOK",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 2)",
+        "range": "35~40s",
+        "is_action": false,
+        "detected": 0,
+        "punches": []
+      },
+      {
+        "phase": "4. 어퍼컷 (Uppercut)",
+        "range": "40~52s",
+        "is_action": true,
+        "detected": 13,
+        "punches": [
+          "RIGHT_HOOK",
+          "RIGHT_HOOK",
+          "RIGHT_CROSS",
+          "RIGHT_HOOK",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 3)",
+        "range": "52~57s",
+        "is_action": false,
+        "detected": 1,
+        "punches": [
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "5. 풋워크 (Footwork)",
+        "range": "57~70s",
+        "is_action": false,
+        "detected": 10,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "RIGHT_CROSS",
+          "LEFT_HOOK",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 4)",
+        "range": "70~75s",
+        "is_action": false,
+        "detected": 2,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "6. 실전 콤보 (Combos)",
+        "range": "75~85s",
+        "is_action": true,
+        "detected": 13,
+        "punches": [
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "RIGHT_UPPERCUT",
+          "RIGHT_HOOK",
+          "LEFT_UPPERCUT",
+          "RIGHT_CROSS",
+          "LEFT_HOOK",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS"
+        ]
+      },
+      {
+        "phase": "7. 마무리 (Cooldown)",
+        "range": "85~90s",
+        "is_action": false,
+        "detected": 0,
+        "punches": []
+      }
+    ]
+  }
+}

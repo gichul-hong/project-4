@@ -28,3 +28,7 @@ Thumbs.db
 # Logs & Temporary Files
 *.log
 *.tmp
+
+# Motion dataset videos stay local; only JSON annotations are versioned.
+/iter3/motion_learning/collected_pose/**/*.webm
+/iter3/motion_learning/collected_pose/.video_staging/
