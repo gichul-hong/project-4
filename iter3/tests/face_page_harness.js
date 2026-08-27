@@ -233,6 +233,88 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   ck('얼굴만의 바운딩을 따로 제공한다 (정렬 기준)',
      sk.faceBounds && sk.faceShorter);
 
+  // ── 3장 촬영 (정면 + 좌우 옆모습) ──────────────────────────────────
+  //
+  // 정면 1장이면 뒤통수·관자놀이에 붙일 픽셀이 아예 없어 이마 위 머리카락을 늘여 붙이게 되고,
+  // 그래서 모자를 쓴 것처럼 보인다. 옆모습에는 그 픽셀이 실제로 찍혀 있다.
+  //
+  // 여기서는 옆모습 랜드마크를 **정면을 좌우로 회전시킨 것**으로 합성해,
+  // 두개골 UV 가 실제로 옆면 칸(아틀라스의 오른쪽 절반)을 물는지 확인한다.
+  const MULTIVIEW = `(() => {
+    const N = 468, AR = 480 / 360;
+    // 정면 랜드마크
+    const front = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const a = i / N * Math.PI * 2, r = 0.16 + 0.05 * Math.sin(i * 2.7);
+      front[i] = { x: 0.5 + Math.cos(a) * r * 0.78, y: 0.5 + Math.sin(a) * r, z: -0.05 * Math.cos(a) };
+    }
+    const OV = (typeof FACEMESH_FACE_OVAL !== 'undefined') ? FACEMESH_FACE_OVAL : null;
+    if (OV) {
+      const seen = new Set();
+      OV.forEach(e => { seen.add(e[0]); seen.add(e[1]); });
+      [...seen].forEach((id, k, arr) => {
+        const a = k / arr.length * Math.PI * 2;
+        front[id] = { x: 0.5 + Math.cos(a) * 0.20, y: 0.5 + Math.sin(a) * 0.26, z: 0.02 };
+      });
+    }
+    /** 정면을 y축으로 ang 만큼 돌린 "옆모습" 랜드마크 */
+    function turned(ang) {
+      const c = Math.cos(ang), s = Math.sin(ang);
+      return front.map(q => {
+        const x = q.x - 0.5, z = q.z;
+        return { x: 0.5 + (x * c + z * s), y: q.y, z: (-x * s + z * c) };
+      });
+    }
+    const negLm = turned(-0.9), posLm = turned(0.9);
+
+    const atlas = {
+      front:   { x: 0,    y: 0,   w: 0.5,  h: 1    },
+      sideNeg: { x: 0.5,  y: 0,   w: 0.25, h: 0.5  },
+      sidePos: { x: 0.5,  y: 0.5, w: 0.25, h: 0.5  },
+    };
+    const full = { x0: 0, y0: 0, w: 1, h: 1 };
+    const f = window.createFace3D({
+      landmarks: front, uvLandmarks: front, image: null, width: 2.6, aspect: AR,
+      crop: full, imageW: 1, imageH: 1,
+      atlas,
+      sideViews: {
+        neg: { lm: negLm, crop: full, imageW: 1, imageH: 1 },
+        pos: { lm: posLm, crop: full, imageW: 1, imageH: 1 },
+      },
+    });
+    if (!f) return JSON.stringify({ err: 'null' });
+
+    const g = f.mesh.geometry;
+    const uv = g.attributes.uv.array;
+    const nv = g.attributes.position.array.length / 3;
+
+    // 앞면 정점의 UV 는 front 칸(u < 0.5) 안에 있어야 한다
+    let faceIn = 0, faceOut = 0;
+    for (let i = 0; i < N; i++) {
+      if (uv[i*2] <= 0.5 + 1e-6) faceIn++; else faceOut++;
+    }
+    // 두개골 정점 중 옆면 칸(u > 0.5)을 무는 것이 얼마나 되나
+    let cranSide = 0, cranFront = 0;
+    for (let i = N; i < nv; i++) {
+      if (uv[i*2] > 0.5) cranSide++; else cranFront++;
+    }
+    // UV 가 전부 [0,1] 안인가 (밖이면 텍스처가 반복돼 얼룩이 된다)
+    let outOfRange = 0;
+    for (let i = 0; i < nv; i++) {
+      const u = uv[i*2], v = uv[i*2+1];
+      if (u < -1e-6 || u > 1 + 1e-6 || v < -1e-6 || v > 1 + 1e-6) outOfRange++;
+    }
+    return JSON.stringify({ faceIn, faceOut, cranSide, cranFront, outOfRange, nv });
+  })()`;
+
+  const mv = JSON.parse(await a.evaluate(MULTIVIEW));
+  ck('3장 촬영에서도 얼굴이 만들어진다', !mv.err, mv.err || `정점 ${mv.nv}`);
+  ck('앞면 UV 가 아틀라스 front 칸 안에 있다', mv.faceOut === 0,
+     `안 ${mv.faceIn} / 밖 ${mv.faceOut}`);
+  ck('두개골이 옆모습 픽셀을 쓴다 (이마 머리카락 늘이기가 아니라)',
+     mv.cranSide > mv.cranFront, `옆면 ${mv.cranSide} / 앞면 ${mv.cranFront}`);
+  ck('UV 가 텍스처 밖으로 나가지 않는다', mv.outOfRange === 0, `${mv.outOfRange}개`);
+
   // face_bulk (나중에 접속한 host 가 기존 얼굴들을 한 번에 받는 경로)
   await a.evaluate(`socket.onmessage({ data: JSON.stringify({
     type: 'face_bulk', faces: { client_3: window.__blob } }) }); true`);
