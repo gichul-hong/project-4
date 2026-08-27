@@ -390,8 +390,11 @@
     // 테두리를 적도로 보고 뒤쪽 극점까지 위도를 나눠 링을 쌓으면 닫힌 반구가 된다.
     // 테두리에서 시작하므로 이음매가 정확히 맞고, 사람마다 다른 얼굴 윤곽을 그대로 따라간다.
     const oval = getFaceOval();
-    const RINGS = 7;                       // 적도 → 극점 사이 링 개수
-    const BACK_DEPTH = 1.05;               // 뒤통수 깊이 (테두리 반지름 대비)
+    const RINGS = 9;                       // 적도 → 극점 사이 링 개수
+    const BACK_DEPTH = 1.76;               // 뒤통수 깊이 (테두리 반지름 대비)
+    // 정수리 높이. FACE_OVAL 의 맨 위는 이마 헤어라인이라 그 위 두개골이 통째로 없다.
+    // 극점을 위로도 보내야 머리가 납작해지지 않는다.
+    const VAULT_UP = 0.92;
     const craniumPos = [];                 // 추가 정점 (x,y,z ...)
     const craniumUV = [];
     const craniumCol = [];
@@ -406,45 +409,74 @@
       }
       cx /= n; cy /= n; cz /= n;
 
-      // 얼굴 안쪽 평균 UV — 뒤통수 색을 여기로 수렴시킨다 (테두리 줄무늬 방지)
+      // 테두리 평균 반지름 — 두개골 크기의 기준
+      let radMean = 0;
+      for (const idx of oval) {
+        radMean += Math.hypot(basePos[idx * 3] - cx, basePos[idx * 3 + 1] - cy);
+      }
+      radMean /= n;
+
+      // **머리카락 UV.** FACE_OVAL 의 맨 위는 이마 헤어라인이다. 그 위쪽 픽셀이 머리카락이고
+      // 촬영 크롭에 얼굴 높이의 18% 여백이 들어 있으므로 텍스처 안에 실제로 존재한다.
+      // 뒤통수 색을 여기로 수렴시킨다 — 얼굴 안쪽(피부)으로 수렴시키면 뒤통수가
+      // "민머리에 살색"이 되어 사람으로 안 보인다.
+      let topIdx = oval[0], topY = Infinity;
+      for (const idx of oval) {
+        if (basePos[idx * 3 + 1] > topY) continue;      // y 는 위가 +
+        // Three 좌표에서 위쪽 = y 큰 쪽
+      }
+      topY = -Infinity;
+      for (const idx of oval) {
+        if (basePos[idx * 3 + 1] > topY) { topY = basePos[idx * 3 + 1]; topIdx = idx; }
+      }
+      // 텍스처에서 이마 위쪽으로 조금 더 올라간 지점 (uv.y 는 뒤집혀 있어 위가 큰 값)
       let midU = 0, midV = 0;
       for (let i = 0; i < lm.length; i++) { midU += uv[i * 2]; midV += uv[i * 2 + 1]; }
       midU /= lm.length; midV /= lm.length;
+      const hairU = uv[topIdx * 2];
+      const hairV = Math.min(0.99, uv[topIdx * 2 + 1] + (uv[topIdx * 2 + 1] - midV) * 0.55);
 
-      // 링별 정점 생성. t=0 은 테두리(이미 존재), t=1 은 뒤쪽 극점.
+      // 링별 정점 생성. t=0 은 테두리(이미 존재), t=1 은 극점.
+      //
+      // 극점을 **뒤쪽만이 아니라 위쪽으로도** 보낸다. FACE_OVAL 의 맨 위가 헤어라인이라
+      // 뒤로만 쓸어 넘기면 정수리가 통째로 없는 납작한 머리가 된다(실측 높이/폭 0.97,
+      // 사람은 약 1.25). 극점을 위·뒤로 두면 이마 위로 두개골이 솟는다.
+      // t 가 1 에 닿으면 shrink = cos(pi/2) = 0 이라 링 전체가 극점으로 뭉쳐
+      // 면적 0 인 삼각형이 한 밴드(2 x n) 통째로 생긴다. 극점은 따로 두고
+      // 링은 그 앞까지만 만든다.
       for (let r = 1; r <= RINGS; r++) {
-        const t = r / RINGS;
-        // 위도를 사인으로 나눠 극점 근처가 촘촘해지게 (구처럼 매끄럽다)
+        const t = r / (RINGS + 1);
         const shrink = Math.cos(t * Math.PI / 2);          // 1 → 0
-        const back = Math.sin(t * Math.PI / 2);            // 0 → 1
+        const sweep = Math.sin(t * Math.PI / 2);           // 0 → 1
+        // 링 중심이 위·뒤로 이동한다.
+        //
+        // 뒤로는 단조롭게 가지만 **위로는 중간에서 가장 높고 그 뒤로 살짝 내려온다.**
+        // 단조 상승으로 두면 머리의 최고점이 뒤통수 극점이 되어 뒤로 뾰족한 원뿔이
+        // 된다. 사람은 정수리가 귀 위쯤에서 가장 높고 뒤통수는 그보다 낮다.
+        const ringY = cy + VAULT_UP * radMean * Math.sin(t * Math.PI * 0.80);
+        const ringZ = cz - BACK_DEPTH * radMean * sweep;
         for (let i = 0; i < n; i++) {
           const idx = oval[i];
           const ox = basePos[idx * 3] - cx;
           const oy = basePos[idx * 3 + 1] - cy;
-          const rad = Math.hypot(ox, oy);
-          craniumPos.push(
-            cx + ox * shrink,
-            cy + oy * shrink,
-            cz - back * rad * BACK_DEPTH
-          );
-          // UV: 이음매(t=0)에서는 테두리 픽셀을 그대로 쓰고, 뒤로 갈수록 **얼굴 안쪽 평균 색**
-          // 으로 수렴시킨다. 테두리 UV 를 그대로 늘이면 윤곽선·머리카락 경계가 뒤통수에
-          // 줄무늬로 번진다. 안쪽으로 수렴시키면 균일한 피부색이 된다.
-          const w = Math.pow(t, 0.7);
-          craniumUV.push(uv[idx * 2] * (1 - w) + midU * w,
-                         uv[idx * 2 + 1] * (1 - w) + midV * w);
+          craniumPos.push(cx + ox * shrink, ringY + oy * shrink, ringZ);
+          // UV: 이음매(t=0)에서는 테두리 픽셀을 그대로 쓰고, 뒤로 갈수록 **머리카락 픽셀**로
+          // 수렴시킨다. 테두리 UV 를 그대로 늘이면 윤곽선이 뒤통수에 줄무늬로 번진다.
+          const w = Math.pow(t, 0.6);
+          craniumUV.push(uv[idx * 2] * (1 - w) + hairU * w,
+                         uv[idx * 2 + 1] * (1 - w) + hairV * w);
           // 뒤로 갈수록 살짝 어둡게 — 빛이 덜 드는 자리라 이게 있어야 구형으로 읽힌다
-          const sh = 1 - t * 0.30;
+          const sh = 1 - t * 0.26;
           craniumCol.push(sh, sh, sh);
         }
       }
-      // 마지막 극점 하나
-      craniumPos.push(cx, cy, cz - BACK_DEPTH * 0.92 *
-        (() => { let m = 0; for (let i = 0; i < n; i++) {
-          const ox = basePos[oval[i] * 3] - cx, oy = basePos[oval[i] * 3 + 1] - cy;
-          m += Math.hypot(ox, oy); } return m / n; })());
-      craniumUV.push(midU, midV);
-      craniumCol.push(0.66, 0.66, 0.66);
+      // 마지막 극점 하나 — 위·뒤로
+      // 극점 — 정수리 곡선의 끝(중간보다 낮다)이자 가장 뒤
+      craniumPos.push(cx,
+                      cy + VAULT_UP * radMean * Math.sin(Math.PI * 0.80),
+                      cz - BACK_DEPTH * radMean);
+      craniumUV.push(hairU, hairV);
+      craniumCol.push(0.70, 0.70, 0.70);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -461,6 +493,7 @@
     for (let i = 0; i < craniumUV.length; i++) allUV[lm.length * 2 + i] = craniumUV[i];
 
     // 두개골 삼각형 — 링과 링 사이를 사각형으로 잇고 둘로 쪼갠다
+    const craniumTriStart = index.length;
     if (oval) {
       const n = oval.length;
       const ringIdx = (r, i) => craniumStart + (r - 1) * n + (i % n);   // r >= 1
@@ -516,6 +549,32 @@
       fixWinding(allPos, fan);
       for (const t of fan) index.push(t);
     });
+
+    // ── 두개골 감기 방향 ──────────────────────────────────────────────
+    //
+    // fixWinding 은 **법선의 z 성분**으로 판단한다. 얼굴 앞면에는 맞지만 뒤통수는
+    // 법선이 -z 라 그 기준을 그대로 쓰면 통째로 뒤집힌다. 실제로 그랬다 —
+    // 뒤쪽 삼각형 468개 중 450개가 안쪽을 향했고, FrontSide 라 뒤통수가
+    // 아예 안 그려졌다("뒤가 뚫려 보인다"의 정체).
+    //
+    // 닫힌 볼록면이므로 **머리 중심에서 바깥으로** 향하는지로 판단한다.
+    if (oval && craniumTriStart < index.length) {
+      let hx = 0, hy = 0, hz = 0;
+      const nv = holeStart;                       // 얼굴 + 두개골 정점
+      for (let i = 0; i < nv; i++) { hx += allPos[i*3]; hy += allPos[i*3+1]; hz += allPos[i*3+2]; }
+      hx /= nv; hy /= nv; hz /= nv;
+      for (let t = craniumTriStart; t + 2 < index.length; t += 3) {
+        const i = index[t], j = index[t+1], k = index[t+2];
+        const ax = allPos[i*3], ay = allPos[i*3+1], az = allPos[i*3+2];
+        const bx = allPos[j*3], by = allPos[j*3+1], bz = allPos[j*3+2];
+        const kx = allPos[k*3], ky = allPos[k*3+1], kz = allPos[k*3+2];
+        const ux = bx-ax, uy = by-ay, uz = bz-az;
+        const vx = kx-ax, vy = ky-ay, vz = kz-az;
+        const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+        const gx = (ax+bx+kx)/3 - hx, gy = (ay+by+ky)/3 - hy, gz = (az+bz+kz)/3 - hz;
+        if (nx*gx + ny*gy + nz*gz < 0) { index[t+1] = k; index[t+2] = j; }
+      }
+    }
 
     geo.setAttribute('position', new THREE.BufferAttribute(allPos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(allUV, 2));
@@ -753,7 +812,15 @@
       blood.geometry.dispose();
     }
 
-    // 두개골까지 포함한 실제 바운딩 (배치·스케일 계산에 쓴다)
+    // **얼굴만의 바운딩** — 아바타에 붙일 때 이걸 기준으로 정렬한다.
+    // 두개골까지 포함한 바운딩으로 중심을 맞추면, 정수리를 세운 만큼 중심이 위로
+    // 올라가 얼굴이 아래로 처진다(턱이 가슴에 파묻힌다). 보는 사람이 위치를
+    // 판단하는 기준은 **얼굴**이므로 얼굴을 머리 자리에 놓고 두개골은 뒤로 뻗게 둔다.
+    const faceBounds = { xMin: bounds.xMin, xMax: bounds.xMax,
+                         yMin: bounds.yMin, yMax: bounds.yMax,
+                         zMin: bounds.zMin, zMax: bounds.zMax };
+
+    // 두개골까지 포함한 실제 바운딩 (전체 크기 판단용)
     for (let i = 0; i < totalV; i++) {
       const x = allPos[i * 3], y = allPos[i * 3 + 1], z = allPos[i * 3 + 2];
       if (x < bounds.xMin) bounds.xMin = x;
@@ -764,7 +831,7 @@
       if (z > bounds.zMax) bounds.zMax = z;
     }
 
-    return { mesh, hit, setHp, update, dispose, state: S, bounds, skinTone,
+    return { mesh, hit, setHp, update, dispose, state: S, bounds, faceBounds, skinTone,
              // 뒤통수까지 닫힌 머리인가 — 호출부가 구 머리를 숨길지 판단한다
              isFullHead: !!oval,
              triangleCount: index.length / 3 };

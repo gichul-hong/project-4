@@ -140,6 +140,99 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   ck('턱 덩어리도 숨긴다', head.jawHidden === true);
   ck('앞면만 렌더한다 (안쪽이 비치지 않게)', head.side === 0, `side=${head.side}`);
 
+  // ── 두개골: 바깥을 향하는가 · 사람 비율인가 ────────────────────────
+  //
+  // 실제로 겪은 버그: 두개골 삼각형 468개 중 450개가 **안쪽**을 향했고,
+  // 재질이 FrontSide 라 뒤통수가 통째로 안 그려졌다. 뒤통수가 없었던 게 아니라
+  // 있는데 투명했다. fixWinding 이 법선의 **z 성분**으로 판단하는데 뒤통수는
+  // 법선이 -z 라 그 기준을 쓰면 반드시 뒤집힌다.
+  //
+  // 또 FACE_OVAL 의 맨 위는 이마 **헤어라인**이라, 뒤로만 쓸어 넘기면 정수리가
+  // 통째로 없는 납작한 머리가 된다(높이/폭 0.97 — 사람은 약 1.25).
+  const SKULL = `(() => {
+    const N = 468, AR = 480 / 360;
+    const lm = new Array(N);
+    for (let i = 0; i < N; i++) {
+      const a = i / N * Math.PI * 2, r = 0.16 + 0.05 * Math.sin(i * 2.7);
+      lm[i] = { x: 0.5 + Math.cos(a) * r * 0.78, y: 0.5 + Math.sin(a) * r, z: -0.05 * Math.cos(a) };
+    }
+    const OV = (typeof FACEMESH_FACE_OVAL !== 'undefined') ? FACEMESH_FACE_OVAL : null;
+    if (OV) {
+      const seen = new Set();
+      OV.forEach(e => { seen.add(e[0]); seen.add(e[1]); });
+      const ids = [...seen];
+      ids.forEach((id, k) => {
+        const a = k / ids.length * Math.PI * 2;
+        lm[id] = { x: 0.5 + Math.cos(a) * 0.20, y: 0.5 + Math.sin(a) * 0.26, z: 0.02 };
+      });
+    }
+    const f = window.createFace3D({ landmarks: lm, image: null, width: 2.6, aspect: AR });
+    if (!f) return JSON.stringify({ err: 'null' });
+
+    const g = f.mesh.geometry;
+    const pos = g.attributes.position.array;
+    const idx = g.index.array || g.index;
+    const nv = pos.length / 3;
+
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < nv; i++) { cx += pos[i*3]; cy += pos[i*3+1]; cz += pos[i*3+2]; }
+    cx /= nv; cy /= nv; cz /= nv;
+
+    // 두개골 삼각형 = 세 정점이 모두 얼굴(468) 뒤에 추가된 것
+    let cranOut = 0, cranIn = 0, degen = 0;
+    for (let t = 0; t < idx.length; t += 3) {
+      const i = idx[t], j = idx[t+1], k = idx[t+2];
+      if (i < N || j < N || k < N) continue;
+      const ax = pos[i*3], ay = pos[i*3+1], az = pos[i*3+2];
+      const bx = pos[j*3], by = pos[j*3+1], bz = pos[j*3+2];
+      const kx = pos[k*3], ky = pos[k*3+1], kz = pos[k*3+2];
+      const ux = bx-ax, uy = by-ay, uz = bz-az;
+      const vx = kx-ax, vy = ky-ay, vz = kz-az;
+      const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+      if (Math.hypot(nx, ny, nz) < 1e-9) { degen++; continue; }
+      const gx = (ax+bx+kx)/3 - cx, gy = (ay+by+ky)/3 - cy, gz = (az+bz+kz)/3 - cz;
+      if (nx*gx + ny*gy + nz*gz > 0) cranOut++; else cranIn++;
+    }
+
+    let zMin = 1e9, zMax = -1e9, yMin = 1e9, yMax = -1e9;
+    for (let i = 0; i < nv; i++) {
+      const z = pos[i*3+2], y = pos[i*3+1];
+      if (z < zMin) zMin = z; if (z > zMax) zMax = z;
+      if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+    }
+    const w = f.bounds.xMax - f.bounds.xMin;
+
+    // 정수리가 뒤통수 극점보다 앞에 있는가 (뒤로 뾰족한 원뿔이 아닌가)
+    let topY = -1e9, topZ = 0, backZ = 1e9;
+    for (let i = 0; i < nv; i++) {
+      if (pos[i*3+1] > topY) { topY = pos[i*3+1]; topZ = pos[i*3+2]; }
+      if (pos[i*3+2] < backZ) backZ = pos[i*3+2];
+    }
+
+    return JSON.stringify({
+      cranOut, cranIn, degen,
+      depthRatio: +((zMax - zMin) / w).toFixed(2),
+      heightRatio: +((yMax - yMin) / w).toFixed(2),
+      crownAheadOfBack: +(topZ - backZ).toFixed(2),
+      faceBounds: !!f.faceBounds,
+      faceShorter: f.faceBounds ? (f.faceBounds.yMax - f.faceBounds.yMin) < (yMax - yMin) : false,
+    });
+  })()`;
+
+  const sk = JSON.parse(await a.evaluate(SKULL));
+  ck('두개골 삼각형이 전부 바깥을 향한다 (뒤통수가 투명하지 않다)',
+     sk.cranIn === 0 && sk.cranOut > 100, `바깥 ${sk.cranOut} / 안쪽 ${sk.cranIn}`);
+  ck('면적 0 인 삼각형이 없다 (링이 극점으로 붕괴하지 않는다)',
+     sk.degen === 0, `${sk.degen}개`);
+  ck('머리 깊이가 폭과 비슷하다 (판자가 아니다)',
+     sk.depthRatio >= 0.85, `깊이/폭 ${sk.depthRatio}`);
+  ck('정수리가 있다 (납작하지 않다)',
+     sk.heightRatio >= 1.15, `높이/폭 ${sk.heightRatio}`);
+  ck('정수리가 뒤통수보다 앞에 있다 (뒤로 뾰족하지 않다)',
+     sk.crownAheadOfBack > 0.2, `${sk.crownAheadOfBack}`);
+  ck('얼굴만의 바운딩을 따로 제공한다 (정렬 기준)',
+     sk.faceBounds && sk.faceShorter);
+
   // face_bulk (나중에 접속한 host 가 기존 얼굴들을 한 번에 받는 경로)
   await a.evaluate(`socket.onmessage({ data: JSON.stringify({
     type: 'face_bulk', faces: { client_3: window.__blob } }) }); true`);
