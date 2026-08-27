@@ -275,8 +275,79 @@ scene.background = bgTexture;
 
 | 기술 | 용도 | 상태 |
 |---|---|---|
-| MediaPipe Hands | 양손 21개 랜드마크 감지, 펀치 속도 계산, lean 이동 | ✅ 사용 중 |
-| MediaPipe Pose | 상체 골격 기울임 추적 | ❌ 제거됨 (FPS 문제) |
+| MediaPipe Pose 7노드 | 상체 골격 + 3D world landmark, 어깨폭 정규화 | ✅ 사용 중 |
+| MediaPipe Hands | (iter2 only) 양손 21개 랜드마크 | ❌ 제거됨 |
 | BiLSTM (PyTorch) | 6가지 복싱 모션 분류 | ⚠️ 학습 완료, 런타임 미연동 |
-| Three.js | 3D 렌더링 (1인칭 뷰 + arena 뷰) | ✅ 사용 중 |
+| Causal TCN (PyTorch) | 10-class 펀치 분류 + trigger | ⚠️ 학습 완료, eval에서 tcn/tcn_hybrid 엔진 사용 |
+| Savitzky-Golay + Kalman (velocity_filter.py) | 손목 궤적 노이즈 제거 → 속도 추정 안정화 | ⚠️ 평가 완료, 미채택 (브라우저 이식 필요) |
+| Three.js | 3D 렌더링 (arena + fighter client) | ✅ 사용 중 |
 | WebSocket (FastAPI) | 실시간 4인 동기화 | ✅ 사용 중 |
+
+---
+
+## 2026-08-27: CV 개선 실험 결과 (Phase 1-3)
+
+> `iter5_plan.md` 의 5단계 계획 중 3단계를 eval 파이프라인에서 실행하고
+> F1 수치로 평가했다. 모든 실험은 `evaluate_video.py` + `run_pipeline.py`
+> + `benchmark.mp4`(90초 정면 고정 프로토콜, 정답 29발) 기준이다.
+
+### Phase 1: 손목 궤적 SG 스무딩 (시공간 신호처리)
+
+| 버전 | F1 | P | R | FP | p50 | p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| v1_baseline | 0.3666 | 0.3548 | 0.3793 | 20 | 134ms | 316.5ms |
+| **v7_velocity_smooth (SG w=11)** | **0.4166** | **0.5263** | 0.3448 | **9** | 233ms | 385.1ms |
+
+**결과**: Precision 0.35→0.53, FP 20→9로 반토막. F1 +0.05.
+지연은 평균 +60ms 증가하는 트레이드오프(SG 지연특성).
+
+**구현**: `iter5/eval/velocity_filter.py` (Kalman + Savitzky-Golay, 온라인 호환)
+→ `evaluate_video.py:arm_kinematics()` 의 단순 유한차분에 끼워넣는 구조.
+
+**칼만(등속)은 전 구간 악화**: 펀치의 급격한 가속(1~3 m/s²)을 추적하지 못함.
+causal SG(과거만)가 안정적인 유일한 선택 (파라미터 스윕으로 window=11 확정).
+
+### Phase 2: 어깨선 회전 정규화 + 2D/3D foreshortening
+
+| 버전 | F1 | 결론 |
+|---|---:|---|
+| v7_rot_norm | 0.3226 | 현 벤치마크(정면 고정)에선 역효과 |
+| v7_sg_rot | 0.4166 | SG와 동일, 회전 혼자선 무의미 |
+
+**구현**: `evaluate_video.py:process()` 에 world landmark XY 평면 회전 정규화 삽입.
+어깨선(11→12)을 수평으로 만드는 변환. 정면 영상이라 기여 없음.
+**2D vs 3D foreshortening 정량 비교**(2D 0.86→0.35 감소 vs 3D 0.21m→0.58m 증가)
+는 `CV_TECHNIQUES.md` 에 이미 기록 — 수치만 인용하면 발표 커버 가능.
+
+### Phase 3: 가시성 기반 속도 임계값 스케일링
+
+| 버전 | F1 | 결론 |
+|---|---:|---|
+| v7_vis_trust (penalty=1.5) | 0.4166 | 100% 가시성에선 당연히 기여 없음 |
+
+**구현**: `evaluate_video.py:try_punch()` 에 visibility-weighted eff_punch_speed.
+ARM_VIS_MIN(0.3) 이하로 가시성이 떨어지면 PUNCH_SPEED 를 비례 상향.
+실제 가려짐이 있는 영상(훅에서 손이 얼굴 뒤로)에서만 효과 발휘.
+
+### 지표 확장
+
+`scoring.py` + `run_pipeline.py` registry + markdown 리포트에
+`timing_error_ms_p50` / `timing_error_ms_p95` 추가.
+
+### 발견된 한계
+
+1. **Recall 병목은 여전히 rule trigger**: 5개 버전 전부 Recall=10~11/29. SG는
+   FP 만 줄였을 뿐 FN 은 못 건드림. Recall 을 더 올리려면 trigger 자체를
+   학습 기반으로 바꾸거나 PUNCH_SPEED 등 임계값 자체를 완화해야 한다.
+2. **SG 필터가 v6c hybrid 엔진에는 미적용됨**: `TCNHybridTriggerEvaluator` 의
+   feature builder(`_build_feature17`) 가 자체 유한차분을 써서 분리되어 있다.
+   여기에 SG 를 적용하면 v6c F1(0.5763)도 추가 상승 가능.
+3. **단일 벤치마크 N=29**: 통계적 유의성 부족. 참가자·조명 확장 필요.
+
+### 재사용 가능한 산출물
+
+| 파일 | 용도 |
+|---|---|
+| `iter5/eval/velocity_filter.py` | KalmanVelocityFilter + SavitzkyGolayFilter 클래스 (런타임 js로 포팅 가능) |
+| `iter5/eval/sweep_velocity_filter.py` | PunchEvaluator 직접 import → 파라미터 스윕 자동화 스크립트 |
+| `iter5/eval/evaluate_video.py` | VELOCITY_FILTER + SHOULDER_ROT_NORM + VIS_TRUST_PENALTY config 키 지원 (rollback 됐으나 diff 에서 복구 가능) |
