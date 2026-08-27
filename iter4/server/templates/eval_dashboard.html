@@ -132,6 +132,8 @@
       </select>
     </div>
     <div class="hud-item">ACTION: <span id="hud-now" style="color:var(--cyan)">IDLE</span></div>
+    <div class="hud-item">MOVE: <span id="hud-move" style="color:var(--gold)">NONE</span></div>
+    <div class="hud-item">GUARD: <span id="hud-guard" style="color:var(--muted)">OFF</span></div>
     <div class="hud-item">FPS: <span id="hud-fps" style="color:var(--green)">--</span></div>
     <div class="hud-item">DATA: <span id="hud-data" style="color:var(--gold)">로딩 중...</span></div>
   </div>
@@ -176,6 +178,17 @@
     </div>
 
     <div class="stats-section">
+      <h3>🚶 무빙 · 회전 · 가드 요약</h3>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="val" id="m-footwork-recall" style="color:var(--green)">--</div><div class="label">Footwork Recall Proxy (Phase 5)</div></div>
+        <div class="metric-card"><div class="val" id="m-static-fp" style="color:var(--pink)">--</div><div class="label">Static FP Proxy (정지 구간)</div></div>
+        <div class="metric-card"><div class="val" id="m-guard-cov" style="color:var(--gold)">--</div><div class="label">Guard Coverage %</div></div>
+        <div class="metric-card"><div class="val" id="m-move-segs" style="color:var(--cyan)">--</div><div class="label">Move 세그먼트 수</div></div>
+      </div>
+      <div id="move-distribution" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="stats-section">
       <h3>📋 구간별 프로토콜 대비 분석</h3>
       <div id="phase-analysis"></div>
     </div>
@@ -215,6 +228,8 @@ const markersCv = document.getElementById('markers-cv');
 const markersCtx = markersCv.getContext('2d');
 const actionPop = document.getElementById('action-pop');
 const hudNow = document.getElementById('hud-now');
+const hudMove = document.getElementById('hud-move');
+const hudGuard = document.getElementById('hud-guard');
 const hudFps = document.getElementById('hud-fps');
 const hudData = document.getElementById('hud-data');
 const btnPlay = document.getElementById('btn-play');
@@ -354,8 +369,41 @@ if (typeof window.createHumanoid === 'function') {
 
 // ==================== 3. 랜드마크 & 펀치 데이터 로드 ====================
 let frames = [], punchEvents = [];
+let moveTimeline = [];     // 프레임당 무빙 상태 (t_ms 오름차순)
+let moveSegments = [];     // {state, start_ms, end_ms} 연속 구간 (marker 오버레이용)
+let movementMetrics = null; // metrics.json 의 movement 섹션 (요약 카드용)
 let lastPopT = 0;
 const SKEL = [[0,11],[0,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+
+// 무빙 상태별 색상 (marker strip 오버레이 및 HUD 에 재사용)
+const MOVE_COLORS = {
+  NONE: null, // 표시하지 않음
+  FORWARD: '#3fb950',   // green
+  BACK: '#d29922',      // gold
+  LEFT: '#00E5FF',      // cyan
+  RIGHT: '#FF3366',     // pink
+};
+
+function buildMoveSegments(timeline) {
+  // timeline (t_ms 오름차순) → 연속된 동일 state 구간을 [{state,start_ms,end_ms}] 로 압축.
+  // NONE 은 제외. marker strip 렌더링 비용을 위해 필요 (2600 프레임을 매번 훑지 않기 위함).
+  const segs = [];
+  if (!timeline || !timeline.length) return segs;
+  let cur = timeline[0].move;
+  let si = 0;
+  for (let i = 1; i < timeline.length; i++) {
+    if (timeline[i].move !== cur) {
+      if (cur !== 'NONE') segs.push({ state: cur, start_ms: timeline[si].t_ms, end_ms: timeline[i-1].t_ms });
+      cur = timeline[i].move;
+      si = i;
+    }
+  }
+  if (cur !== 'NONE') {
+    const last = timeline.length - 1;
+    segs.push({ state: cur, start_ms: timeline[si].t_ms, end_ms: timeline[last].t_ms });
+  }
+  return segs;
+}
 
 async function loadVersions() {
   try {
@@ -389,7 +437,33 @@ async function loadAll(selectedVersion = null) {
     punchEvents = d.punches || [];
   } catch(e) { console.error("Punch events load fail:", e); }
 
-  hudData.innerText = `${frames.length}F / ${punchEvents.length}P`;
+  // 무빙 timeline 로드 (없으면 조용히 스킵 — 예전 버전은 movement_timeline.jsonl 이 없음)
+  try {
+    const url = (selectedVersion && selectedVersion !== "latest") ? `/api/eval-moves?version=${selectedVersion}` : '/api/eval-moves';
+    const r3 = await fetch(url);
+    if (r3.ok) {
+      const d = await r3.json();
+      moveTimeline = d.timeline || [];
+      moveSegments = buildMoveSegments(moveTimeline);
+      console.log(`[eval] movement timeline ${moveTimeline.length} frames, ${moveSegments.length} segments`);
+    } else {
+      moveTimeline = []; moveSegments = [];
+    }
+  } catch(e) { console.warn("Movement timeline load fail:", e); moveTimeline = []; moveSegments = []; }
+
+  // movement 요약 (metrics.json.movement) 로드
+  try {
+    const url = (selectedVersion && selectedVersion !== "latest") ? `/api/eval-movement-summary?version=${selectedVersion}` : '/api/eval-movement-summary';
+    const r4 = await fetch(url);
+    if (r4.ok) {
+      const d = await r4.json();
+      movementMetrics = d.movement || null;
+    } else {
+      movementMetrics = null;
+    }
+  } catch(e) { movementMetrics = null; }
+
+  hudData.innerText = `${frames.length}F / ${punchEvents.length}P / ${moveTimeline.length}M`;
   hudData.style.color = '#3fb950';
 
   renderStats();
@@ -422,12 +496,46 @@ function renderStats() {
   ).join('');
 
   const paDiv = document.getElementById('phase-analysis');
+  // movement phase 는 metrics.movement.phase_analysis.phases 에 있고
+  // range 필드가 "06~19s" 형태다. t0 로 매칭 (라벨 문자열보다 안정적).
+  const mvPhases = movementMetrics?.phase_analysis?.phases || [];
+  const mvByT0 = {};
+  mvPhases.forEach(p => {
+    const m = /^(\d+)~/.exec(p.range || '');
+    if (m) mvByT0[parseInt(m[1], 10)] = p;
+  });
   paDiv.innerHTML = PROTOCOL.map(ph => {
     const detected = punchEvents.filter(p => p.t_ms >= ph.t0 * 1000 && p.t_ms < ph.t1 * 1000).length;
     const diff = detected - ph.expect;
     const diffStr = diff > 0 ? `<span style="color:var(--pink)">+${diff} 과검출</span>` : diff < 0 ? `<span style="color:var(--gold)">${diff} 미검출</span>` : `<span style="color:var(--green)">✓ 정확</span>`;
-    return `<div class="type-row"><span style="font-size:0.72rem;color:#c9d1d9">[${ph.t0}~${ph.t1}s] ${ph.label}</span><span>${detected}/${ph.expect} ${diffStr}</span></div>`;
+    const mv = mvByT0[ph.t0];
+    const mvStr = mv
+      ? `<span style="color:${MOVE_COLORS[mv.dominant_move] || 'var(--muted)'}">${mv.dominant_move}(${mv.move_active_pct}%)</span>`
+      : '<span style="color:var(--muted)">-</span>';
+    return `<div class="type-row"><span style="font-size:0.72rem;color:#c9d1d9">[${ph.t0}~${ph.t1}s] ${ph.label}</span><span>${detected}/${ph.expect} ${diffStr} · ${mvStr}</span></div>`;
   }).join('');
+
+  // 무빙 요약 카드
+  const mvSum = movementMetrics || {};
+  const mvPa = mvSum.phase_analysis || {};
+  const setCard = (id, val, suffix='') => {
+    const el = document.getElementById(id);
+    if (el) el.innerText = (val === null || val === undefined) ? '--' : `${val}${suffix}`;
+  };
+  setCard('m-footwork-recall', mvPa.footwork_recall_proxy, '%');
+  setCard('m-static-fp', mvPa.static_fp_proxy, '%');
+  setCard('m-guard-cov', mvSum.guard_coverage_pct, '%');
+  setCard('m-move-segs', mvSum.move_segments_count);
+
+  const distDiv = document.getElementById('move-distribution');
+  if (distDiv) {
+    const dist = mvSum.move_distribution_pct || {};
+    const order = ['FORWARD','BACK','LEFT','RIGHT','NONE'];
+    distDiv.innerHTML = order.filter(k => k in dist).map(k => {
+      const col = MOVE_COLORS[k] || 'var(--muted)';
+      return `<div class="type-row"><span style="color:${col};font-weight:600">${k}</span><span>${dist[k]}%</span></div>`;
+    }).join('');
+  }
 }
 
 function renderTimeline() {
@@ -450,11 +558,28 @@ function renderMarkers() {
   const H = markersCv.height = 20;
   markersCtx.clearRect(0, 0, W, H);
   const dur = video.duration;
+
+  // 무빙 세그먼트를 marker strip 하단 6px 밴드에 색상별로 오버레이한다.
+  // 펀치 marker(세로 line) 는 그 위에 그려져서 서로 안 가려진다.
+  const bandH = 6;
+  const bandY = H - bandH;
+  moveSegments.forEach(seg => {
+    const col = MOVE_COLORS[seg.state];
+    if (!col) return;
+    const x0 = Math.max(0, (seg.start_ms / 1000 / dur) * W);
+    const x1 = Math.min(W, (seg.end_ms / 1000 / dur) * W);
+    markersCtx.fillStyle = col;
+    markersCtx.globalAlpha = 0.55;
+    markersCtx.fillRect(x0, bandY, Math.max(1, x1 - x0), bandH);
+  });
+  markersCtx.globalAlpha = 1;
+
+  // 펀치 marker (그 위에)
   punchEvents.forEach(p => {
     const x = (p.t_ms / 1000 / dur) * W;
     markersCtx.fillStyle = p.conf_margin <= 0 ? '#FF3366' : '#00E5FF';
-    markersCtx.globalAlpha = 0.7;
-    markersCtx.fillRect(x - 1, 0, 2, H);
+    markersCtx.globalAlpha = 0.8;
+    markersCtx.fillRect(x - 1, 0, 2, H - bandH - 1);
   });
   markersCtx.globalAlpha = 1;
 }
@@ -556,6 +681,26 @@ function findFrame(tMs) {
   return frames[Math.min(lo, frames.length - 1)];
 }
 
+// 무빙 timeline 에서 현재 t_ms 에 해당하는 프레임을 이진탐색으로 찾는다.
+// 대시보드 sync 루프는 매 프레임 이 함수를 호출하므로 O(log N).
+function findMove(tMs) {
+  if (!moveTimeline.length) return null;
+  let lo = 0, hi = moveTimeline.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (moveTimeline[m].t_ms < tMs) lo = m + 1; else hi = m - 1; }
+  return moveTimeline[Math.min(lo, moveTimeline.length - 1)];
+}
+
+function updateMoveHud(tMs) {
+  const mv = findMove(tMs);
+  if (!mv) return;
+  const moveText = mv.move === 'NONE' ? (mv.rot === 'NONE' ? 'NONE' : mv.rot) : mv.move;
+  const moveCol = MOVE_COLORS[mv.move] || (mv.rot !== 'NONE' ? '#a371f7' : 'var(--muted)');
+  hudMove.innerText = moveText;
+  hudMove.style.color = moveCol;
+  hudGuard.innerText = mv.guard ? 'ON' : 'OFF';
+  hudGuard.style.color = mv.guard ? 'var(--green)' : 'var(--muted)';
+}
+
 let fpsFrames = 0, fpsLast = performance.now();
 function sync() {
   if (frames.length > 0) {
@@ -565,6 +710,7 @@ function sync() {
       drawSkel(d.lm); 
       updateArenaFighter(d.lm, d.wl, ms);
     }
+    updateMoveHud(ms);
   }
   fpsFrames++;
   const now = performance.now();

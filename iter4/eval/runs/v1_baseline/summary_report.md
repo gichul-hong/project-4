@@ -1,6 +1,6 @@
 # 🥊 Boxing Action Recognition Benchmark Report
 
-**생성 일시**: 2026-08-27 11:54:09  
+**생성 일시**: 2026-08-27 14:19:27  
 **평가 대상**: `C:\hong\project-4\iter4\eval\video\benchmark.mp4`  
 **허용 오차 윈도우**: `±400ms`
 
