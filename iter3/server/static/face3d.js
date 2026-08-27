@@ -361,6 +361,88 @@
    * 가운데(볼·코 주변)만 표본으로 쓴다 — 가장자리는 머리카락·배경이 섞여 톤을 흐린다.
    * 너무 어둡거나(그림자) 너무 밝은(하이라이트) 픽셀도 뺀다.
    */
+  /**
+   * 사진에서 **머리 바깥을 머리카락색으로 덮는다.**
+   *
+   * 두개골 정점은 사진에 랜드마크가 없어 아핀 투영으로 위치를 추정하는데, 얼굴로 맞춘
+   * 투영을 머리 뒤로 외삽하면 얼마든지 멀리 날아간다. 실제로 **천장과 벽이 뒤통수에 발렸다.**
+   *
+   * 투영을 정교하게 만드는 대신 **사진 쪽을 고친다** — 머리 실루엣 밖을 미리 머리카락색으로
+   * 칠해 두면 어디를 찍든 배경이 나올 수 없다. UV 를 보간하다 그 위를 지나가도 마찬가지다.
+   * "없는 데이터를 정확히 찍으려" 하는 대신 "없는 자리는 무난한 색"으로 만드는 쪽이 튼튼하다.
+   *
+   * @param {Image} image     아틀라스(또는 단일 사진)
+   * @param {object} regions  { key: {x,y,w,h} } 정규화된 칸. null 이면 전체를 한 칸으로 본다.
+   * @param {object} lmByKey  칸별 랜드마크 (그 칸에서 머리가 어디인지 재는 데 쓴다)
+   * @returns {{canvas:HTMLCanvasElement, hair:number}|null}
+   */
+  function paintOutsideHead(image, regions, lmByKey, expand) {
+    try {
+      const W = image.naturalWidth || image.width;
+      const H = image.naturalHeight || image.height;
+      if (!W || !H) return null;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      g.drawImage(image, 0, 0);
+
+      // 머리카락 색 — 이마 바로 위 띠에서 딴다. 헤어라인 바로 위라 대부분 머리카락이고,
+      // 머리가 없는 사람이면 이마 피부색이 나오는데 그것도 맞는 답이다.
+      const fr = regions.front, flm = lmByKey.front;
+      let hair = 0x3a2a20;
+      if (fr && flm) {
+        let mu = 0, mv = 0, ru = 0, rv = 0;
+        for (let i = 0; i < flm.length; i++) { mu += flm[i].x; mv += flm[i].y; }
+        mu /= flm.length; mv /= flm.length;
+        for (let i = 0; i < flm.length; i++) {
+          ru = Math.max(ru, Math.abs(flm[i].x - mu));
+          rv = Math.max(rv, Math.abs(flm[i].y - mv));
+        }
+        // 이마 위쪽(정규화 v 가 작은 쪽) 띠
+        const sx = (fr.x + (mu - ru * 0.55) * fr.w) * W;
+        const sw = Math.max(2, ru * 1.10 * fr.w * W);
+        // 랜드마크의 맨 위(= 헤어라인 근처)보다 **확실히 위**를 본다.
+        // rv 는 중심에서 가장 먼 랜드마크까지의 거리이므로 mv - rv 가 곧 얼굴 꼭대기다.
+        // 1.10~1.45 배 구간이면 얼굴을 벗어나 머리카락에 놓인다 — 얼굴에 걸치면
+        // 머리카락색으로 피부색을 뽑게 되고, 그러면 뒤통수가 살색이 된다(실제로 그랬다).
+        const sy = (fr.y + Math.max(0, mv - rv * 1.45) * fr.h) * H;
+        const sh = Math.max(2, rv * 0.35 * fr.h * H);
+        const d = g.getImageData(Math.max(0, sx | 0), Math.max(0, sy | 0),
+                                 Math.min(W - (sx | 0), sw | 0), Math.min(H - (sy | 0), sh | 0)).data;
+        let r = 0, gg = 0, b = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+        if (n > 4) hair = ((Math.round(r / n) << 16) | (Math.round(gg / n) << 8) | Math.round(b / n));
+      }
+      const hs = '#' + ('000000' + hair.toString(16)).slice(-6);
+
+      // 칸마다 머리 타원 **밖**을 머리카락색으로 채운다
+      for (const key of Object.keys(regions)) {
+        const R = regions[key], L = lmByKey[key];
+        if (!R || !L) continue;
+        let mu = 0, mv = 0, ru = 0, rv = 0;
+        for (let i = 0; i < L.length; i++) { mu += L[i].x; mv += L[i].y; }
+        mu /= L.length; mv /= L.length;
+        for (let i = 0; i < L.length; i++) {
+          ru = Math.max(ru, Math.abs(L[i].x - mu));
+          rv = Math.max(rv, Math.abs(L[i].y - mv));
+        }
+        const ex = expand || 1.30;
+        g.save();
+        g.beginPath();
+        g.rect(R.x * W, R.y * H, R.w * W, R.h * H);
+        g.ellipse((R.x + mu * R.w) * W, (R.y + mv * R.h) * H,
+                  ru * ex * R.w * W, rv * ex * R.h * H, 0, 0, Math.PI * 2);
+        g.clip('evenodd');
+        g.fillStyle = hs;
+        g.fillRect(R.x * W, R.y * H, R.w * W, R.h * H);
+        g.restore();
+      }
+      return { canvas: c, hair };
+    } catch (e) {
+      return null;      // 다른 출처 이미지 등으로 캔버스가 오염되면 읽을 수 없다
+    }
+  }
+
   function sampleSkinTone(image, frontRegion) {
     try {
       const W = image.naturalWidth || image.width;
@@ -475,6 +557,11 @@
     // 정수리 높이. FACE_OVAL 의 맨 위는 이마 헤어라인이라 그 위 두개골이 통째로 없다.
     // 극점을 위로도 보내야 머리가 납작해지지 않는다.
     const VAULT_UP = 0.92;
+    // 옆사진에서 머리(머리카락 포함)가 얼굴 랜드마크 범위보다 얼마나 더 넓은가
+    const HEAD_EXPAND = 1.30;
+    // 옆사진이 실제로 담고 있는 범위. 이보다 뒤는 어느 사진에도 안 찍혀 있으므로
+    // 투영을 시도하지 않고 머리카락 색으로 채운다.
+    const SIDE_MAX_T = 0.55;
     const craniumPos = [];                 // 추가 정점 (x,y,z ...)
     const craniumUV = [];
     const craniumCol = [];
@@ -534,7 +621,23 @@
           const fit = fitProjection(basePos, view.lm, Math.min(lm.length, view.lm.length));
           if (!fit) continue;
           const vIW = view.imageW || 1, vIH = view.imageH || 1, vc = view.crop;
-          sideProj[key] = { fit, reg, vIW, vIH, vc };
+
+          // **그 사진에서 머리가 차지하는 타원**을 재 둔다.
+          //
+          // 아핀 투영은 얼굴 랜드마크로 맞춘 것이라 두개골(랜드마크가 없는 자리)로
+          // 외삽하면 얼마든지 멀리 날아간다. 실제로 천장과 벽이 뒤통수에 발렸다.
+          // 랜드마크 범위를 머리카락만큼 넓힌 타원 밖은 **사진에 머리가 없는 자리**이므로
+          // 쓰지 않는다.
+          let mu = 0, mv = 0;
+          const M = Math.min(lm.length, view.lm.length);
+          for (let i = 0; i < M; i++) { mu += view.lm[i].x; mv += view.lm[i].y; }
+          mu /= M; mv /= M;
+          let ru = 0, rv = 0;
+          for (let i = 0; i < M; i++) {
+            ru = Math.max(ru, Math.abs(view.lm[i].x - mu));
+            rv = Math.max(rv, Math.abs(view.lm[i].y - mv));
+          }
+          sideProj[key] = { fit, reg, vIW, vIH, vc, mu, mv, ru, rv };
         }
       }
 
@@ -545,6 +648,13 @@
         const { a, b } = P.fit;
         let u = a[0] * x + a[1] * y + a[2] * z + a[3];
         let v = b[0] * x + b[1] * y + b[2] * z + b[3];
+
+        // **머리 실루엣 안인가.** 밖이면 그 자리에 찍힌 것은 천장·벽이다.
+        // 머리카락이 얼굴 랜드마크보다 바깥으로 나오므로 HEAD_EXPAND 만큼 넓혀 본다.
+        const du = (u - P.mu) / (P.ru * HEAD_EXPAND);
+        const dv = (v - P.mv) / (P.rv * HEAD_EXPAND);
+        if (du * du + dv * dv > 1) return null;
+
         if (P.vc) {          // 사진 전체 -> 잘라낸 사각형 기준
           u = (u * P.vIW - P.vc.x0) / P.vc.w;
           v = (v * P.vIH - P.vc.y0) / P.vc.h;
@@ -582,15 +692,20 @@
           // 좌우는 정점의 x 부호로 가른다 (얼굴 중심 기준).
           const px = cx + ox * shrink, py = ringY + oy * shrink, pz = ringZ;
           const key = (px < cx) ? 'neg' : 'pos';
-          let su = sideUV(key, px, py, pz);
-          if (!su) su = sideUV(key === 'neg' ? 'pos' : 'neg', px, py, pz);
+          // 뒤통수 깊숙한 곳은 어느 사진에도 안 찍혀 있다 — 시도조차 하지 않는다
+          let su = (t <= SIDE_MAX_T) ? sideUV(key, px, py, pz) : null;
+          if (!su && t <= SIDE_MAX_T) su = sideUV(key === 'neg' ? 'pos' : 'neg', px, py, pz);
           if (su) {
             // 이음매(t 가 작을 때)에서는 앞면 UV 와 섞어 경계가 튀지 않게 한다
             const bw = Math.min(1, t * 2.2);
             craniumUV.push(uv[idx * 2] * (1 - bw) + su[0] * bw,
                            uv[idx * 2 + 1] * (1 - bw) + su[1] * bw);
           } else {
-            const w = Math.pow(t, 0.6);
+            // 옆사진이 못 미치는 자리 — 머리카락 색으로 수렴시킨다.
+            // 옆사진 범위(SIDE_MAX_T)를 넘어가면 **완전히** 머리카락색으로 간다.
+            // 조금이라도 테두리 UV 가 섞여 있으면 얼굴 가장자리(피부색)가 뒤통수까지
+            // 끌려와 "살색 뒤통수"가 된다.
+            const w = (t > SIDE_MAX_T) ? 1 : Math.min(1, t / SIDE_MAX_T);
             craniumUV.push(uv[idx * 2] * (1 - w) + hairU * w,
                            uv[idx * 2 + 1] * (1 - w) + hairV * w);
           }
@@ -604,13 +719,8 @@
       craniumPos.push(cx,
                       cy + VAULT_UP * radMean * Math.sin(Math.PI * 0.80),
                       cz - BACK_DEPTH * radMean);
-      {
-        const pz = cz - BACK_DEPTH * radMean;
-        const py = cy + VAULT_UP * radMean * Math.sin(Math.PI * 0.80);
-        const su = sideUV('neg', cx, py, pz) || sideUV('pos', cx, py, pz);
-        if (su) craniumUV.push(su[0], su[1]);
-        else craniumUV.push(hairU, hairV);
-      }
+      // 극점(뒤통수 한가운데)은 어느 사진에도 안 찍혀 있다 — 머리카락 색으로 채운다
+      craniumUV.push(hairU, hairV);
       craniumCol.push(0.70, 0.70, 0.70);
     }
 
@@ -723,10 +833,20 @@
     let tex = null;
     let skinTone = null;
     if (opts.image) {
-      tex = new THREE.CanvasTexture(opts.image);
+      // **머리 바깥을 머리카락색으로 덮은 사본**을 텍스처로 쓴다.
+      // 그러지 않으면 두개골 UV 가 천장·벽을 찍는다(실제로 그랬다).
+      const regions = opts.atlas || { front: { x: 0, y: 0, w: 1, h: 1 } };
+      const lmByKey = {
+        front: opts.uvLandmarks || lm,
+        sideNeg: (opts.sideViews && opts.sideViews.neg) ? opts.sideViews.neg.lm : null,
+        sidePos: (opts.sideViews && opts.sideViews.pos) ? opts.sideViews.pos.lm : null,
+      };
+      const painted = paintOutsideHead(opts.image, regions, lmByKey, HEAD_EXPAND);
+      const src = painted ? painted.canvas : opts.image;
+      tex = new THREE.CanvasTexture(src);
       tex.flipY = true;
       tex.needsUpdate = true;
-      skinTone = sampleSkinTone(opts.image, opts.atlas && opts.atlas.front);
+      skinTone = sampleSkinTone(src, opts.atlas && opts.atlas.front);
     }
 
     const mat = new THREE.MeshStandardMaterial({

@@ -311,8 +311,10 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   ck('3장 촬영에서도 얼굴이 만들어진다', !mv.err, mv.err || `정점 ${mv.nv}`);
   ck('앞면 UV 가 아틀라스 front 칸 안에 있다', mv.faceOut === 0,
      `안 ${mv.faceIn} / 밖 ${mv.faceOut}`);
-  ck('두개골이 옆모습 픽셀을 쓴다 (이마 머리카락 늘이기가 아니라)',
-     mv.cranSide > mv.cranFront, `옆면 ${mv.cranSide} / 앞면 ${mv.cranFront}`);
+  // 옆사진이 실제로 담고 있는 범위(SIDE_MAX_T)까지만 쓴다 — 그보다 뒤는 어느 사진에도
+  // 없으므로 머리카락색으로 채운다. 그래서 "대부분"이 아니라 "관자놀이·귀 밴드"만 옆면이다.
+  ck('두개골 앞쪽 밴드가 옆모습 픽셀을 쓴다',
+     mv.cranSide >= 30, `옆면 ${mv.cranSide} / 앞면 ${mv.cranFront}`);
   ck('UV 가 텍스처 밖으로 나가지 않는다', mv.outOfRange === 0, `${mv.outOfRange}개`);
 
   // face_bulk (나중에 접속한 host 가 기존 얼굴들을 한 번에 받는 경로)
