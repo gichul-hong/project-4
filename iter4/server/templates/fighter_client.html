@@ -791,28 +791,52 @@
     const ENGINE_REGISTRY = {
       rule:      { label: '기본 (Rule-base)', engine: null }, // punchCore를 직접 사용
       tcn:       { label: 'TCN (실측 학습)', engine: tcnEngine },
+      // v5c(eval/runs/v5c_tcn_hybrid_gate) 를 실시간 판정에 그대로 옮긴 것.
+      // "TCN 확신도" AND "룰베이스 물리조건"을 둘 다 요구한다 — punchCore.tryPunch가 이미
+      // 물리 임계값(PUNCH_ARM/PUNCH_EXTEND로 창 열기, PUNCH_SPEED/PUNCH_REACH_N으로 발사)을
+      // 통과해야만 punch가 생기므로, 여기서는 그 punch에 대해 TCN이 같은 팔의 펀치 라벨을
+      // 충분한 확신(guessPunchKind의 KIND_MIN_CONFIDENCE)으로 보고 있는지만 추가로 확인한다.
+      // 'tcn' 모드는 TCN이 불확실하면 rule-base 종류로 **폴백**하지만, 'hybrid'는 그 경우
+      // 아예 **펀치 자체를 무효화**한다(hitFireLoop 참고) — v5b(TCN 단독 트리거)가 실패했던
+      // "물리적 근거 없는 과검출"을 걸러내려는 목적과 동일한 AND 게이트다.
+      hybrid:    { label: '하이브리드 (TCN AND 물리조건)', engine: tcnEngine },
       heuristic_no_aug: { label: '휴리스틱 최적화 (증강 X)', engine: heuristicNoAugEngine },
       heuristic_aug: { label: '휴리스틱 최적화 (증강 O)', engine: heuristicAugEngine },
       heuristic_aug_tcn: { label: '휴리스틱 최적화 (증강 O) + TCN', engine: createConsensusEngine(tcnEngine, heuristicAugEngine) },
     };
     const motionFeatures = window.createMotionFeatures();
 
-    let motionMode = localStorage.getItem('motionMode') || 'rule';
+    // 엔진 선택을 'tcn'(실측 학습)으로 고정한다 — 사용자가 다른 모드로 바꿀 수 없게
+    // 드롭다운 자체를 비활성화(disabled)하고, 이전 접속에서 남은 localStorage 선택값도 무시한다.
+    // 다시 선택 가능하게 되돌리려면 FIXED_ENGINE_MODE를 null로 바꾸면 된다.
+    const FIXED_ENGINE_MODE = 'tcn';
+
+    let motionMode = FIXED_ENGINE_MODE || localStorage.getItem('motionMode') || 'rule';
     if (!ENGINE_REGISTRY[motionMode]) motionMode = 'rule';
 
-    Object.keys(ENGINE_REGISTRY).forEach((key) => {
+    if (FIXED_ENGINE_MODE) {
       const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = ENGINE_REGISTRY[key].label;
+      opt.value = motionMode;
+      opt.textContent = ENGINE_REGISTRY[motionMode].label;
       engineSelect.appendChild(opt);
-    });
-    engineSelect.value = motionMode;
-    engineSelect.addEventListener('change', () => {
-      motionMode = engineSelect.value;
-      localStorage.setItem('motionMode', motionMode);
-      motionFeatures.reset();
-      Object.values(ENGINE_REGISTRY).forEach((e) => e.engine && e.engine.reset());
-    });
+      engineSelect.value = motionMode;
+      engineSelect.disabled = true;
+      engineSelect.title = `동작 인식 엔진 (${ENGINE_REGISTRY[motionMode].label}로 고정됨)`;
+    } else {
+      Object.keys(ENGINE_REGISTRY).forEach((key) => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = ENGINE_REGISTRY[key].label;
+        engineSelect.appendChild(opt);
+      });
+      engineSelect.value = motionMode;
+      engineSelect.addEventListener('change', () => {
+        motionMode = engineSelect.value;
+        localStorage.setItem('motionMode', motionMode);
+        motionFeatures.reset();
+        Object.values(ENGINE_REGISTRY).forEach((e) => e.engine && e.engine.reset());
+      });
+    }
 
     // TCN 등 별도 모델의 가중치는 미리 비동기로 로드해 둔다. 실패해도 rule-base 동작(트리거)에는
     // 전혀 영향이 없고, 로드 전에 사용자가 TCN을 선택해도 guessPunchKind가 null만 돌려줘
@@ -1440,7 +1464,16 @@
       // 확정된 경우에만, 그것도 확신 있을 때만 그 종류를 다시 되묻는다.
       if (punch && selectedEngine && punch.action !== punchCore.ULTIMATE) {
         const guess = selectedEngine.guessPunchKind(punch.action.startsWith('LEFT') ? 'L' : 'R');
-        if (guess) punch = Object.assign({}, punch, { action: guess.action, kind: guess.kind });
+        if (guess) {
+          punch = Object.assign({}, punch, { action: guess.action, kind: guess.kind });
+        } else if (motionMode === 'hybrid') {
+          // v5c AND 게이트: 룰베이스 물리조건(punchCore.tryPunch)은 이미 통과했지만,
+          // TCN이 이 팔의 펀치 라벨을 확신하지 못한다 — 'tcn' 모드처럼 rule 종류로
+          // 폴백하지 않고 펀치 자체를 무효화한다(hit/사운드/네트워크 전송 전부 스킵).
+          punchLabel = `(REJECTED: ${punch.action} — TCN 미확신)`;
+          punchLabelT = now;
+          punch = null;
+        }
       }
 
       if (punch) {

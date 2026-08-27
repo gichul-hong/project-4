@@ -33,16 +33,16 @@ def in_test_region(t_ms):
     return any(abs(t_ms - s) <= SINGLETON_RADIUS_MS for s in TEST_SINGLETONS_MS)
 
 
-def run_engine():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+def run_engine(engine="tcn_trigger", config_path=CONFIG_PATH, model_dir=MODEL_DIR, out_dir=OUT_DIR):
+    out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable, str(SCRIPT_DIR / "evaluate_video.py"),
         "--landmarks", str(VIDEO_LANDMARKS),
         "--labels", str(LABELS_PATH),
-        "--config", str(CONFIG_PATH),
-        "--engine", "tcn_trigger",
-        "--tcn-model-dir", str(MODEL_DIR),
-        "--out-dir", str(OUT_DIR),
+        "--config", str(config_path),
+        "--engine", engine,
+        "--tcn-model-dir", str(model_dir),
+        "--out-dir", str(out_dir),
     ]
     import os
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
@@ -51,20 +51,20 @@ def run_engine():
     print(res.stdout)
     if res.returncode != 0:
         print(res.stderr)
-        raise SystemExit(f"evaluate_video.py 실패 (code {res.returncode}) — TCN 트리거 엔진이 "
+        raise SystemExit(f"evaluate_video.py 실패 (code {res.returncode}) — {engine} 엔진이 "
                           f"정상 동작하지 않았다는 뜻. 위 stderr 참고.")
 
     # --- 검증 1: TCN이 실제로 로드됐는지 stdout에서 확인 ---
-    loaded_ok = "🧠 [TCN Trigger Engine]" in res.stdout
+    loaded_ok = "🧠 [TCN" in res.stdout and "로드 완료" in res.stdout
     fallback_seen = "로드 실패" in res.stdout
     print("\n" + "=" * 60)
-    print("[검증] TCN 트리거 엔진이 실제로 쓰였는가?")
+    print(f"[검증] {engine} 엔진이 실제로 TCN을 썼는가?")
     print(f"  - 프로세스 종료 코드: {res.returncode} (0이면 SystemExit 안 걸렸다는 뜻)")
-    print(f"  - '🧠 [TCN Trigger Engine]' 로그 존재: {loaded_ok}")
+    print(f"  - '🧠 [TCN ... 로드 완료' 로그 존재: {loaded_ok}")
     print(f"  - '로드 실패'(폴백) 로그 존재: {fallback_seen}")
     if not loaded_ok or fallback_seen:
         raise SystemExit("❌ 검증 실패 — TCN이 실제로 로드/사용되지 않았을 가능성이 있다.")
-    print("  => ✅ TCN 트리거 엔진이 정상적으로 로드되어 전체 트리거/분류를 직접 수행했다.")
+    print("  => ✅ TCN이 정상적으로 로드되어 전체 트리거/분류를 직접 수행했다.")
     print("=" * 60)
     return res.stdout
 
