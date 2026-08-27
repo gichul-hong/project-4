@@ -482,7 +482,7 @@ iter2/
 
 ```
 # 저장소 루트에서 (--video/--labels 기본값이 이미 벤치마크 파일을 가리킨다)
-python iter3/eval/run_pipeline.py --version <태그이름>
+python iter4/eval/run_pipeline.py --version <태그이름>
 ```
 
 `--version` 을 생략하면 `v1_baseline` 을 **덮어씁니다.** 새 실험은 반드시 태그를 주세요.

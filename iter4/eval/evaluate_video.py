@@ -1,14 +1,14 @@
 """Offline punch evaluation on a video file.
 
-Ports the runtime punch pipeline of iter3/server/templates/fighter_client.html
+Ports the runtime punch pipeline of iter4/server/templates/fighter_client.html
 (MediaPipe Pose upper-body 7 nodes + window-latch punch detector) to Python,
 runs it frame-by-frame on an input video, and reports punch counts, types,
 speeds and form metrics.
 
 Usage:
   conda activate pjt-4
-  python iter3/eval/evaluate_video.py video/iter3-poc.mp4
-  python iter3/eval/evaluate_video.py video/iter3-poc.mp4 --annotate out.mp4
+  python iter4/eval/evaluate_video.py video/benchmark.mp4
+  python iter4/eval/evaluate_video.py video/benchmark.mp4 --annotate out.mp4
 """
 import argparse
 import csv
@@ -848,13 +848,13 @@ def main():
         shutil.move(str(tmp_json), str(json_path))
 
     csv_path = out_dir / "punches.csv"
-    cols = ["t_ms", "frame", "side", "action", "speed_ms", "speed_kmh", "reach_n", "elbow_deg", "vx", "vy", "conf_margin"]
+    cols = ["t_ms", "frame", "side", "action", "kind", "speed_ms", "speed_kmh", "reach_n", "elbow_deg", "vx", "vy", "conf_margin"]
     try:
         with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
             wcsv = csv.DictWriter(f, fieldnames=cols)
             wcsv.writeheader()
             for e in events:
-                wcsv.writerow({c: e[c] for c in cols})
+                wcsv.writerow({c: e.get(c, "") for c in cols})
     except Exception as err:
         import os
         tmp_csv = out_dir / f"punches_{os.getpid()}.csv"
@@ -862,7 +862,7 @@ def main():
             wcsv = csv.DictWriter(f, fieldnames=cols)
             wcsv.writeheader()
             for e in events:
-                wcsv.writerow({c: e[c] for c in cols})
+                wcsv.writerow({c: e.get(c, "") for c in cols})
         try:
             if csv_path.exists():
                 csv_path.unlink()

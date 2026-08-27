@@ -56,10 +56,10 @@ iter3/eval/
 
 ```bash
 # 1. 합성 궤적 데이터셋 생성 (필요 시)
-python iter3/eval/synth_dataset.py
+python iter4/eval/synth_dataset.py
 
 # 2. 전체 스위트 실행 및 요약 결과 확인
-python iter3/eval/run_suite.py
+python iter4/eval/run_suite.py
 ```
 
 * **출력 예시**:
@@ -89,13 +89,13 @@ python iter3/eval/run_suite.py
 
 ```bash
 # 기본 분석 및 점수 측정
-python iter3/eval/evaluate_video.py iter3/eval/video/benchmark.mp4 --labels iter3/eval/video/benchmark_labels.json
+python iter4/eval/evaluate_video.py iter4/eval/video/benchmark.mp4 --labels iter4/eval/video/benchmark_labels.json
 
 # 관절 궤적 및 판정 이벤트가 오버레이된 비디오 생성
-python iter3/eval/evaluate_video.py iter3/eval/video/benchmark.mp4 \
-  --labels iter3/eval/video/benchmark_labels.json \
-  --annotate iter3/eval/output/annotated_benchmark.mp4 \
-  --report iter3/eval/output/benchmark_report.json
+python iter4/eval/evaluate_video.py iter4/eval/video/benchmark.mp4 \
+  --labels iter4/eval/video/benchmark_labels.json \
+  --annotate iter4/eval/output/annotated_benchmark.mp4 \
+  --report iter4/eval/output/benchmark_report.json
 ```
 
 ---

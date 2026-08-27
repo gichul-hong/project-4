@@ -8,7 +8,7 @@ Runs the complete 4-stage pipeline:
   Stage 4: Automated Markdown & HTML Report Generation
 
 Usage:
-  python iter3/eval/run_pipeline.py --video iter3/eval/video/benchmark.mp4 --labels iter3/eval/video/benchmark_labels.json
+  python iter4/eval/run_pipeline.py --video iter4/eval/video/benchmark.mp4 --labels iter4/eval/video/benchmark_labels.json
 """
 import argparse
 import csv
@@ -85,12 +85,28 @@ def load_predictions(csv_path: Path):
         reader = csv.DictReader(f)
         for r in reader:
             clean = {k.strip().lstrip("\ufeff"): v.strip() for k, v in r.items() if k}
+            action = clean.get("action", "")
+            raw_kind = clean.get("kind", "")
+            if not raw_kind:
+                suffix = action.split("_")[-1] if "_" in action else action
+                raw_kind = suffix
+            
+            # Label dictionary normalization: JAB/CROSS/STRAIGHT -> STRAIGHT
+            if raw_kind.upper() in ("JAB", "CROSS", "STRAIGHT"):
+                kind = "STRAIGHT"
+            elif "HOOK" in raw_kind.upper():
+                kind = "HOOK"
+            elif "UPPERCUT" in raw_kind.upper() or "UPPER" in raw_kind.upper():
+                kind = "UPPERCUT"
+            else:
+                kind = raw_kind.upper()
+
             punches.append({
                 "t_ms": int(float(clean["t_ms"])),
                 "frame": int(float(clean.get("frame", 0))),
                 "side": clean.get("side", ""),
-                "action": clean.get("action", ""),
-                "kind": clean.get("action", "").split("_")[-1] if "_" in clean.get("action", "") else clean.get("action", ""),
+                "action": action,
+                "kind": kind,
                 "speed_kmh": float(clean.get("speed_kmh", 0)),
                 "elbow_deg": float(clean.get("elbow_deg", 0)),
                 "conf_margin": float(clean.get("conf_margin", 0)),

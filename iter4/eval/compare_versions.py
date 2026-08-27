@@ -4,8 +4,8 @@
 Reads runs_registry.json and outputs a comparative table of all evaluated algorithm versions.
 
 Usage:
-  python iter3/eval/compare_versions.py
-  python iter3/eval/compare_versions.py v1_baseline v2_anti_sway
+  python iter4/eval/compare_versions.py
+  python iter4/eval/compare_versions.py v1_baseline v2_anti_sway
 """
 import argparse
 import json

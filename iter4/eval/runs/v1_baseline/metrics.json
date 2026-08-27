@@ -1,33 +1,30 @@
 {
   "tolerance_ms": 400,
   "ground_truth": 29,
-  "predicted": 59,
-  "tp": 17,
-  "fp": 42,
-  "fn": 12,
-  "precision": 0.2881,
-  "recall": 0.5862,
-  "f1": 0.3863,
-  "kind_accuracy": 0.2353,
-  "side_accuracy": 0.4706,
-  "timing_error_ms_mean": 111.9,
-  "timing_error_ms_max": 300,
+  "predicted": 31,
+  "tp": 11,
+  "fp": 20,
+  "fn": 18,
+  "precision": 0.3548,
+  "recall": 0.3793,
+  "f1": 0.3666,
+  "kind_accuracy": 0.3636,
+  "side_accuracy": 0.3636,
+  "timing_error_ms_mean": 169.7,
+  "timing_error_ms_max": 333,
   "confusion": {
-    "STRAIGHT->JAB": 3,
-    "HOOK->HOOK": 3,
-    "UPPERCUT->UPPERCUT": 1,
-    "UPPERCUT->CROSS": 1,
-    "UPPERCUT->JAB": 2,
-    "STRAIGHT->HOOK": 3,
-    "STRAIGHT->UPPERCUT": 2,
-    "STRAIGHT->CROSS": 2
+    "STRAIGHT->STRAIGHT": 4,
+    "HOOK->STRAIGHT": 1,
+    "UPPERCUT->STRAIGHT": 3,
+    "STRAIGHT->HOOK": 2,
+    "STRAIGHT->UPPERCUT": 1
   },
   "version": "v1_baseline",
   "source_video": "C:\\hong\\project-4\\iter4\\eval\\video\\benchmark.mp4",
   "phase_analysis": {
     "rest_fp": 2,
-    "footwork_fp": 9,
-    "non_action_fp_total": 11,
+    "footwork_fp": 7,
+    "non_action_fp_total": 9,
     "phases": [
       {
         "phase": "1. 준비 (Calibration)",
@@ -62,25 +59,13 @@
         "phase": "3. 훅 펀치 (Hook)",
         "range": "23~35s",
         "is_action": true,
-        "detected": 17,
+        "detected": 5,
         "punches": [
           "RIGHT_HOOK",
-          "LEFT_JAB",
-          "RIGHT_HOOK",
-          "RIGHT_CROSS",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
-          "LEFT_JAB",
           "RIGHT_CROSS",
           "LEFT_JAB",
           "LEFT_HOOK",
-          "RIGHT_CROSS",
-          "LEFT_HOOK",
-          "LEFT_HOOK",
-          "LEFT_HOOK",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
-          "LEFT_HOOK"
+          "LEFT_JAB"
         ]
       },
       {
@@ -94,22 +79,14 @@
         "phase": "4. 어퍼컷 (Uppercut)",
         "range": "40~52s",
         "is_action": true,
-        "detected": 15,
+        "detected": 7,
         "punches": [
           "RIGHT_HOOK",
-          "RIGHT_UPPERCUT",
-          "RIGHT_HOOK",
           "RIGHT_CROSS",
-          "RIGHT_HOOK",
           "RIGHT_CROSS",
           "LEFT_JAB",
           "RIGHT_CROSS",
-          "LEFT_JAB",
           "RIGHT_CROSS",
-          "LEFT_JAB",
-          "RIGHT_CROSS",
-          "LEFT_JAB",
-          "LEFT_JAB",
           "LEFT_JAB"
         ]
       },
@@ -124,17 +101,15 @@
         "phase": "5. 풋워크 (Footwork)",
         "range": "57~70s",
         "is_action": false,
-        "detected": 9,
+        "detected": 7,
         "punches": [
           "LEFT_JAB",
-          "RIGHT_CROSS",
           "LEFT_JAB",
           "LEFT_JAB",
           "LEFT_JAB",
           "LEFT_JAB",
           "RIGHT_CROSS",
-          "RIGHT_CROSS",
-          "LEFT_JAB"
+          "RIGHT_CROSS"
         ]
       },
       {
@@ -150,19 +125,13 @@
         "phase": "6. 실전 콤보 (Combos)",
         "range": "75~85s",
         "is_action": true,
-        "detected": 11,
+        "detected": 5,
         "punches": [
           "LEFT_HOOK",
-          "LEFT_UPPERCUT",
           "RIGHT_HOOK",
           "RIGHT_CROSS",
-          "LEFT_JAB",
           "RIGHT_HOOK",
-          "LEFT_HOOK",
-          "RIGHT_CROSS",
-          "RIGHT_UPPERCUT",
-          "LEFT_JAB",
-          "RIGHT_CROSS"
+          "RIGHT_UPPERCUT"
         ]
       },
       {
