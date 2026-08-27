@@ -54,14 +54,15 @@ def extract_pose_stage(video_path: Path, out_jsonl: Path, force: bool = False):
     print(f"✅ [Stage 1] 랜드마크 추출 완료: {out_jsonl}")
 
 
-def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, annotate_video: Path = None, raw_video: Path = None):
+def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, engine: str = "rule", annotate_video: Path = None, raw_video: Path = None):
     """Stage 2: Action Detection & Kinematics Engine."""
-    print(f"⚙️ [Stage 2] 펀치 키네마틱스 엔진 동작 판정 중...")
+    print(f"⚙️ [Stage 2] 펀치 엔진 동작 판정 중... (Engine: {engine.upper()})")
     cmd = [
         sys.executable,
         str(SCRIPT_DIR / "evaluate_video.py"),
         "--landmarks", str(jsonl_path),
-        "--out-dir", str(out_dir)
+        "--out-dir", str(out_dir),
+        "--engine", engine
     ]
     if config_path and config_path.exists():
         cmd.extend(["--config", str(config_path)])
@@ -74,7 +75,7 @@ def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, c
     if res.returncode != 0:
         print(f"❌ Stage 2 실패:\n{res.stderr}")
         raise RuntimeError("Inference failed")
-    print(f"✅ [Stage 2] 동작 판정 완료 (out_dir: {out_dir})")
+    print(f"✅ [Stage 2] 동작 판정 완료 (Engine: {engine.upper()}, out_dir: {out_dir})")
 
 
 def load_predictions(csv_path: Path):
@@ -251,8 +252,9 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
 
 def main():
     ap = argparse.ArgumentParser(description="Version-Controlled End-to-End Boxing Benchmark Pipeline")
-    ap.add_argument("--version", default=None, help="Version tag (e.g. v1_baseline, v2_anti_sway)")
-    ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter4/eval/configs/v2_anti_sway.json)")
+    ap.add_argument("--version", default=None, help="Version tag (e.g. v1_baseline, v4_tcn_hybrid)")
+    ap.add_argument("--engine", default="rule", choices=["rule", "tcn"], help="Punch classification engine (rule or tcn)")
+    ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter4/eval/configs/v4_tcn_hybrid.json)")
     ap.add_argument("--video", default=str(SCRIPT_DIR / "video" / "benchmark.mp4"), help="Input video file")
     ap.add_argument("--labels", default=str(SCRIPT_DIR / "video" / "benchmark_labels.json"), help="Ground truth labels JSON")
     ap.add_argument("--output-dir", default=None, help="Custom output directory (default: iter4/eval/runs/<version>)")
@@ -267,7 +269,7 @@ def main():
         if config_path:
             version_tag = config_path.stem
         else:
-            version_tag = "v1_baseline"
+            version_tag = "v1_baseline" if args.engine == "rule" else "v4_tcn_hybrid"
 
     video_path = Path(args.video).resolve()
     labels_path = Path(args.labels).resolve() if args.labels else None
@@ -297,7 +299,8 @@ def main():
     print(f"🥊 Boxing Benchmark Pipeline — Version: [{version_tag}]")
     print("=" * 65)
     print(f"• Version Tag : {version_tag}")
-    print(f"• Config File : {config_path.name if config_path else '(Default Baseline)'}")
+    print(f"• Engine Type : {args.engine.upper()} ({'Causal TCN Deep Learning' if args.engine == 'tcn' else 'Rule-based Kinematics'})")
+    print(f"• Config File : {config_path.name if config_path else '(Default)'}")
     print(f"• Input Video : {video_path.name}")
     print(f"• Labels File : {labels_path.name if labels_path else 'None'}")
     print(f"• Output Dir  : {out_dir}")
@@ -309,7 +312,7 @@ def main():
     extract_pose_stage(video_path, jsonl_path, force=args.force_extract)
 
     # Stage 2: Action Inference
-    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path)
+    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine)
     punches = load_predictions(csv_path)
 
     # Stage 3: Scoring & Metrics

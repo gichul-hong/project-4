@@ -85,6 +85,144 @@ PUNCH_NAME = {
 DEFAULT_MODEL = Path(__file__).with_name("models") / "pose_landmarker_full.task"
 
 
+# ==================== TCN 딥러닝 모션 분류기 ====================
+class TCNMotionClassifier:
+    """Offline PyTorch Causal TCN Classifier for Punch Kind Recognition."""
+    CLASSES = [
+        "IDLE", "LEFT_JAB", "RIGHT_JAB", "LEFT_HOOK", "RIGHT_HOOK",
+        "LEFT_UPPERCUT", "RIGHT_UPPERCUT", "TWO_HAND_GUARD", "ENERGY_WAVE", "OTHER",
+    ]
+    PUNCH_CLASSES = {
+        "LEFT_JAB", "RIGHT_JAB", "LEFT_HOOK", "RIGHT_HOOK",
+        "LEFT_UPPERCUT", "RIGHT_UPPERCUT"
+    }
+
+    def __init__(self, model_dir: Path = None):
+        if model_dir is None:
+            model_dir = Path(__file__).parent.parent / "motion_learning"
+        self.model_dir = model_dir
+        self.model = None
+        self.scaler = None
+        self.buffer = []  # list of 17-dim arrays
+        self.seq_len = 60
+        self.dim = 17
+        self.prev_l = None
+        self.prev_r = None
+        self.prev_t = 0
+        self._load()
+
+    def _load(self):
+        try:
+            import torch
+            sys.path.insert(0, str(self.model_dir))
+            from tcn_model import CausalMotionTCN
+            
+            pth_path = self.model_dir / "boxing_tcn.pth"
+            scaler_path = self.model_dir / "boxing_tcn_scaler.json"
+            
+            if not pth_path.exists() or not scaler_path.exists():
+                print(f"⚠️ TCN 가중치/스케일러 파일 없음: {pth_path}")
+                return
+
+            self.scaler = json.loads(scaler_path.read_text(encoding="utf-8"))
+            self.model = CausalMotionTCN(input_dim=17, num_classes=len(self.CLASSES))
+            ckpt = torch.load(str(pth_path), map_location="cpu")
+            self.model.load_state_dict(ckpt)
+            self.model.eval()
+            print(f"🧠 [TCN Engine] PyTorch Causal TCN 모델 로드 완료 ({pth_path.name})")
+        except Exception as e:
+            print(f"⚠️ TCN 로드 실패 (룰베이스로 폴백): {e}")
+            self.model = None
+
+    def push(self, lm, now_ms):
+        if not lm or len(lm) <= R_WR:
+            return
+        # 17차원 heuristic_7j_v1 피처 추출
+        nose, lsh, rsh = lm[NOSE], lm[L_SH], lm[R_SH]
+        lel, rel, lwr, rwr = lm[L_EL], lm[R_EL], lm[L_WR], lm[R_WR]
+
+        sh2d = max(math.hypot(lsh.x - rsh.x, lsh.y - rsh.y), 1e-3)
+        l_el_ratio = angle_deg(lsh, lel, lwr) / 180.0
+        r_el_ratio = angle_deg(rsh, rel, rwr) / 180.0
+        l_reach = dist3(lwr, lsh) / sh2d
+        r_reach = dist3(rwr, rsh) / sh2d
+        hands_dist = dist3(lwr, rwr) / sh2d
+        l_wrist_nose = dist3(lwr, nose) / sh2d
+        r_wrist_nose = dist3(rwr, nose) / sh2d
+        elbow_dist = dist3(lel, rel) / sh2d
+        avg_wrist_z = ((lwr.z + rwr.z) / 2.0) / sh2d
+
+        lvx, lvy, lvz = 0.0, 0.0, 0.0
+        rvx, rvy, rvz = 0.0, 0.0, 0.0
+        dt = (now_ms - self.prev_t) / 1000.0 if self.prev_t else 0.0
+        if self.prev_l and 0.008 < dt < 0.4:
+            lvx = (lwr.x - self.prev_l[0]) / dt / sh2d
+            lvy = (lwr.y - self.prev_l[1]) / dt / sh2d
+            lvz = (lwr.z - self.prev_l[2]) / dt / sh2d
+            rvx = (rwr.x - self.prev_r[0]) / dt / sh2d
+            rvy = (rwr.y - self.prev_r[1]) / dt / sh2d
+            rvz = (rwr.z - self.prev_r[2]) / dt / sh2d
+
+        self.prev_l = (lwr.x, lwr.y, lwr.z)
+        self.prev_r = (rwr.x, rwr.y, rwr.z)
+        self.prev_t = now_ms
+
+        l_speed = math.hypot(lvx, lvy, lvz)
+        r_speed = math.hypot(rvx, rvy, rvz)
+
+        feat17 = [
+            l_el_ratio, r_el_ratio, l_reach, r_reach,
+            lvx, lvy, lvz, rvx, rvy, rvz,
+            l_speed, r_speed, hands_dist, l_wrist_nose, r_wrist_nose, elbow_dist, avg_wrist_z
+        ]
+        self.buffer.append(feat17)
+        if len(self.buffer) > self.seq_len:
+            self.buffer.pop(0)
+
+    def guess_punch_kind(self, side: str):
+        if not self.model or len(self.buffer) == 0:
+            return None, 0.0
+        import torch
+        # Build normalized input tensor
+        median = self.scaler["median"]
+        scale = self.scaler["scale"]
+        clip = self.scaler.get("clip", 5.0)
+
+        n = len(self.buffer)
+        data = []
+        for t in range(self.seq_len):
+            src_idx = max(0, t - (self.seq_len - n))
+            src = self.buffer[src_idx]
+            norm_f = []
+            for f in range(self.dim):
+                v = (src[f] - median[f]) / scale[f]
+                v = max(-clip, min(clip, v))
+                norm_f.append(v)
+            data.append(norm_f)
+
+        x = torch.tensor([data], dtype=torch.float32)
+        with torch.no_grad():
+            logits = self.model(x)[0]
+            probs = torch.softmax(logits, dim=-1).numpy()
+
+        best_idx = int(probs.argmax())
+        best_label = self.CLASSES[best_idx]
+        best_prob = float(probs[best_idx])
+
+        want_side = "LEFT_" if side == "L" else "RIGHT_"
+        if best_label in self.PUNCH_CLASSES and best_label.startswith(want_side):
+            # Map RIGHT_JAB -> STRAIGHT, LEFT_JAB -> STRAIGHT, HOOK -> HOOK, UPPERCUT -> UPPERCUT
+            raw_kind = best_label.replace(want_side, "")
+            if raw_kind == "JAB":
+                kind = "STRAIGHT"
+            elif raw_kind in ("HOOK", "UPPERCUT"):
+                kind = raw_kind
+            else:
+                kind = "STRAIGHT"
+            return kind, best_prob
+        return None, best_prob
+
+
 def dist3(a, b):
     return math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 
@@ -170,7 +308,7 @@ def arm_kinematics(st, sh, el, wr, shoulder_w, now_ms):
 
 
 class PunchEvaluator:
-    def __init__(self, calib=True):
+    def __init__(self, calib=True, tcn_classifier=None):
         self.calib_enabled = calib
         self.neutral_ready = not calib
         self.calib_t0 = None
@@ -183,6 +321,7 @@ class PunchEvaluator:
         self.arms = {"L": ArmState("L"), "R": ArmState("R")}
         self.events = []
         self.windows_expired = 0
+        self.tcn_classifier = tcn_classifier
 
     def process(self, lm, wl, now_ms):
         fired = []
@@ -286,6 +425,9 @@ class PunchEvaluator:
 
     def try_punch(self, k, now_ms):
         st = self.arms[k.side]
+        if self.posture_locked:
+            st.armed = False
+            return None
         if not st.armed and k.speed > PUNCH_ARM and k.d_reach > PUNCH_EXTEND:
             st.armed = True
             st.arm_t = now_ms
@@ -316,7 +458,17 @@ class PunchEvaluator:
         st.armed = False
         st.last_punch = now_ms
         st.windows_fired += 1
+        
+        # 1) 기본 룰베이스 키네마틱스 분류
         kind, margin = classify_punch(st.peak, st.pvx, st.pvy, st.pelbow)
+        
+        # 2) TCN 딥러닝 모드 활성화 시 Causal TCN 추론 결과로 재분류
+        if self.tcn_classifier:
+            tcn_kind, tcn_prob = self.tcn_classifier.guess_punch_kind(k.side)
+            if tcn_kind is not None and tcn_prob >= 0.40:
+                kind = tcn_kind
+                margin = tcn_prob
+
         return {
             "t_ms": now_ms,
             "frame": None,
@@ -529,6 +681,7 @@ def main():
     ap.add_argument("--labels", default=None, help="labels.json for accuracy scoring (default: auto-discover next to input)")
     ap.add_argument("--model", default=str(DEFAULT_MODEL))
     ap.add_argument("--out-dir", default=None, help="output directory (default: iter3/eval/output/<stem>)")
+    ap.add_argument("--engine", default="rule", choices=["rule", "tcn"], help="Punch classification engine: rule or tcn")
     ap.add_argument("--annotate", nargs="?", const="AUTO", help="write annotated mp4 (optional path)")
     ap.add_argument("--start", type=float, default=0.0, help="analysis start second")
     ap.add_argument("--end", type=float, default=None, help="analysis end second")
@@ -538,6 +691,10 @@ def main():
 
     if args.config:
         apply_tune_config(args.config)
+
+    tcn_clf = None
+    if args.engine == "tcn":
+        tcn_clf = TCNMotionClassifier()
 
     if not args.video and not args.landmarks:
         print("영상 경로 또는 --landmarks JSONL 중 하나는 필수")
@@ -584,7 +741,7 @@ def main():
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(annotate_path), fourcc, src_fps, (width, height))
 
-    evaluator = PunchEvaluator(calib=not args.no_calib)
+    evaluator = PunchEvaluator(calib=not args.no_calib, tcn_classifier=tcn_clf)
     label_until = -1
     detected_frames = 0
     seen_frames = 0
@@ -600,6 +757,9 @@ def main():
         seen_frames += 1
         if lm is not None and wl is not None and len(wl) > R_WR:
             detected_frames += 1
+
+        if tcn_clf and lm is not None:
+            tcn_clf.push(lm, ts_ms)
 
         fired = evaluator.process(lm, wl, ts_ms)
         for ev in fired:
