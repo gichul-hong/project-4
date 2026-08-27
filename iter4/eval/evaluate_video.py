@@ -76,6 +76,7 @@ CALIB_MS = 1800
 
 LOCK_MIN_MS = 180
 LOCK_MAX_MS = 1100
+TCN_MIN_CONF = 0.35
 
 PUNCH_NAME = {
     "L": {"STRAIGHT": "LEFT_JAB", "HOOK": "LEFT_HOOK", "UPPERCUT": "LEFT_UPPERCUT"},
@@ -465,7 +466,7 @@ class PunchEvaluator:
         # 2) TCN 딥러닝 모드 활성화 시 Causal TCN 추론 결과로 재분류
         if self.tcn_classifier:
             tcn_kind, tcn_prob = self.tcn_classifier.guess_punch_kind(k.side)
-            if tcn_kind is not None and tcn_prob >= 0.40:
+            if tcn_kind is not None and tcn_prob >= TCN_MIN_CONF:
                 kind = tcn_kind
                 margin = tcn_prob
 
@@ -649,7 +650,7 @@ def print_report(summary, events):
 def apply_tune_config(config_path):
     global PUNCH_ARM, PUNCH_EXTEND, PUNCH_SPEED, PUNCH_REACH_N, PUNCH_GROW_N
     global PUNCH_WINDOW_MS, PUNCH_CD_MS, PUNCH_CD_ANY_MS, UPPERCUT_VY, UPPERCUT_ELBOW
-    global HOOK_VX, HOOK_ELBOW, LOCK_MIN_MS, LOCK_MAX_MS
+    global HOOK_VX, HOOK_ELBOW, LOCK_MIN_MS, LOCK_MAX_MS, TCN_MIN_CONF
     if not config_path or not Path(config_path).exists():
         return
     data = json.loads(Path(config_path).read_text(encoding="utf-8"))
@@ -668,7 +669,8 @@ def apply_tune_config(config_path):
     HOOK_ELBOW = float(tune.get("HOOK_ELBOW", HOOK_ELBOW))
     LOCK_MIN_MS = float(tune.get("LOCK_MIN_MS", LOCK_MIN_MS))
     LOCK_MAX_MS = float(tune.get("LOCK_MAX_MS", LOCK_MAX_MS))
-    print(f"🔧 [Config Applied] {Path(config_path).name} (SPEED={PUNCH_SPEED}, EXTEND={PUNCH_EXTEND})")
+    TCN_MIN_CONF = float(tune.get("TCN_MIN_CONF", TCN_MIN_CONF))
+    print(f"🔧 [Config Applied] {Path(config_path).name} (SPEED={PUNCH_SPEED}, EXTEND={PUNCH_EXTEND}, TCN_CONF={TCN_MIN_CONF})")
 
 
 def main():

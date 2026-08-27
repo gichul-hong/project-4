@@ -55,6 +55,20 @@
       "timing_err_ms": 169.7,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v4_tcn_hybrid.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v4_tcn_hybrid"
+    },
+    {
+      "version": "v5_tcn_optimized",
+      "timestamp": "2026-08-27 09:34:06",
+      "f1": 0.3793,
+      "precision": 0.3793,
+      "recall": 0.3793,
+      "tp": 11,
+      "fp": 18,
+      "fn": 18,
+      "non_action_fp": 7,
+      "timing_err_ms": 169.7,
+      "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v5_tcn_optimized.json",
+      "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v5_tcn_optimized"
     }
   ]
 }
