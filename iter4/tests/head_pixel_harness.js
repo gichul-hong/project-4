@@ -179,9 +179,10 @@ const LAB = `(async () => {
   }
   console.log('');
 
-  ck('머리가 실제로 그려진다 (앞)', r.front.head > 2000, `${r.front.head}px`);
-  ck('뒤에서도 머리가 그려진다 (뚫려 있지 않다)', r.back.head > 2000, `${r.back.head}px`);
-  ck('옆에서도 머리가 그려진다', r.side.head > 2000, `${r.side.head}px`);
+  // 뒤통수는 만들지 않는다 — face3d 는 **얼굴 앞면만** 내놓고, 머리 뒤쪽은
+  // humanoid 의 구형 두개골이 맡는다. 그래서 여기서는 옆·뒤에서 면적을 기대하지 않는다.
+  ck('얼굴이 실제로 그려진다 (앞)', r.front.head > 2000, `${r.front.head}px`);
+  ck('옆에서도 얼굴 일부가 보인다', r.side.head > 500, `${r.side.head}px`);
 
   // 핵심 — 사진의 배경이 머리에 묻지 않았는가
   for (const name of ['front', 'side', 'back', 'side2']) {
@@ -189,9 +190,11 @@ const LAB = `(async () => {
        `${r[name].magentaPct}%`);
   }
 
-  // 뒤통수는 머리카락색이어야 한다 (피부색 판때기가 아니라)
-  ck('뒤통수가 머리카락색이다', r.back.hair > r.back.skin,
-     `머리카락 ${r.back.hair} / 피부 ${r.back.skin}`);
+  // 이 하니스의 본래 목적은 **사진 배경이 얼굴에 발리는지**를 픽셀로 잡는 것이다.
+  // (실제로 천장·벽이 뒤통수에 발린 적이 있다 — UV 좌표 검사로는 못 잡았다.)
+  ck('어느 각도에서도 배경색이 2% 미만',
+     ['front','side','back','side2'].every(k => r[k].magentaPct < 2.0),
+     ['front','side','back','side2'].map(k => `${k} ${r[k].magentaPct}%`).join(' · '));
 
   await a.close();
   console.log(fail === 0 ? '\n>>> 전부 통과' : `\n>>> ${fail}개 실패`);

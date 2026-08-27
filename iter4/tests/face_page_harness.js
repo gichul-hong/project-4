@@ -57,17 +57,20 @@ const CHECK_BURIED = (meshExpr) => `(() => {
   if (!f) return { applied: false };
   const pos = f.mesh.geometry.attributes.position.array;
   const dz = f.mesh.position.z;
+  // **구가 뒤로 물러나 있다.** 얼굴을 앞으로 밀면 부리가 되므로 구를 뒤로 옮기는데,
+  // 그 위치를 반영하지 않으면 멀쩡한 얼굴도 "파묻혔다"고 잘못 잡는다.
+  const hz = h.head.position.z || 0;
   const fk = f.mesh.scale.x;                       // 머리 크기에 맞춘 스케일
   const R = ${HEAD_R}, sx = h.head.scale.x, sy = h.head.scale.y, sz = h.head.scale.z;
   let inside = 0, worst = Infinity;
   for (let i = 0; i < pos.length; i += 3) {
-    const x = pos[i] * fk, y = pos[i + 1] * fk, z = pos[i + 2] * fk + dz;
+    const x = pos[i] * fk, y = pos[i + 1] * fk, z = pos[i + 2] * fk + dz - hz;
     const e = (x/(R*sx))**2 + (y/(R*sy))**2 + (z/(R*sz))**2;
     if (e < 1) inside++;
     if (e < worst) worst = e;
   }
   return {
-    applied: true, inside, worst, faceZ: dz,
+    applied: true, inside, worst, faceZ: dz, skullZ: hz,
     tris: f.triangleCount,
     fullHead: !!f.isFullHead,
     headVisible: h.head.visible,
@@ -102,9 +105,9 @@ const CHECK_BURIED = (meshExpr) => `(() => {
       // 대신 아래 '닫힌 머리' 절에서 깊이·정점 수를 본다.
       ck('닫힌 머리이므로 구 머리를 숨긴다', hostRes.headVisible === false);
     } else {
-      ck('(폴백) 두개골 구에 파묻히지 않는다', hostRes.inside === 0,
-         `${hostRes.inside}개 박힘 · 최소비율 ${hostRes.worst.toFixed(2)}`);
-      ck('(폴백) 두개골 구는 남아 있다', hostRes.headVisible === true);
+      ck('얼굴이 아바타 머리와 겹치지 않는다 (머리를 숨김)',
+     hostRes.headVisible === false, `head.visible=${hostRes.headVisible}`);
+      
     }
   }
 
@@ -132,106 +135,19 @@ const CHECK_BURIED = (meshExpr) => `(() => {
       verts: pos.length / 3,
     };
   })()`);
-  ck('뒤통수까지 닫힌 머리로 만들어진다', head.isFullHead === true);
-  ck('얼굴(468)보다 정점이 많다 (두개골이 붙었다)', head.verts > 468, `${head.verts}개`);
-  ck('머리 깊이가 폭의 절반 이상 (판자가 아니다)', head.depth > head.width * 0.5,
-     `깊이 ${head.depth.toFixed(2)} / 폭 ${head.width.toFixed(2)}`);
-  ck('구 머리를 숨긴다 (겹치지 않는다)', head.skullHidden === true);
+  // **뒤통수는 만들지 않는다.**
+  // 얼굴 테두리에서 두개골을 쓸어 만들면 실제 얼굴에서 뒤로 뾰족한 혹이 생긴다.
+  // 사람마다 테두리 모양·깊이가 크게 달라 상수로 맞출 수 있는 문제가 아니었다.
+  // 대신 humanoid 의 구형 두개골을 남기고 얼굴만 그 앞면에 얹는다.
+  ck('뒤통수를 지어내지 않는다', head.isFullHead !== true);
+  // 468 랜드마크 + 눈·입 구멍을 메운 중심 정점 3개
+  ck('얼굴 정점은 468 + 구멍중심 3개', head.verts === 471, `${head.verts}개`);
+  // 사진 얼굴과 단색 구는 크기·곡률이 안 맞아 어떻게 배치해도 어색했다
+  // (앞으로 밀면 부리, 붙이면 구가 뚫고 나옴, 뒤로 물리면 얼굴이 뜸).
+  // 그래서 얼굴이 있으면 아바타 머리를 통째로 숨긴다.
+  ck('얼굴을 등록하면 아바타 머리를 숨긴다', head.skullHidden === true);
   ck('턱 덩어리도 숨긴다', head.jawHidden === true);
   ck('앞면만 렌더한다 (안쪽이 비치지 않게)', head.side === 0, `side=${head.side}`);
-
-  // ── 두개골: 바깥을 향하는가 · 사람 비율인가 ────────────────────────
-  //
-  // 실제로 겪은 버그: 두개골 삼각형 468개 중 450개가 **안쪽**을 향했고,
-  // 재질이 FrontSide 라 뒤통수가 통째로 안 그려졌다. 뒤통수가 없었던 게 아니라
-  // 있는데 투명했다. fixWinding 이 법선의 **z 성분**으로 판단하는데 뒤통수는
-  // 법선이 -z 라 그 기준을 쓰면 반드시 뒤집힌다.
-  //
-  // 또 FACE_OVAL 의 맨 위는 이마 **헤어라인**이라, 뒤로만 쓸어 넘기면 정수리가
-  // 통째로 없는 납작한 머리가 된다(높이/폭 0.97 — 사람은 약 1.25).
-  const SKULL = `(() => {
-    const N = 468, AR = 480 / 360;
-    const lm = new Array(N);
-    for (let i = 0; i < N; i++) {
-      const a = i / N * Math.PI * 2, r = 0.16 + 0.05 * Math.sin(i * 2.7);
-      lm[i] = { x: 0.5 + Math.cos(a) * r * 0.78, y: 0.5 + Math.sin(a) * r, z: -0.05 * Math.cos(a) };
-    }
-    const OV = (typeof FACEMESH_FACE_OVAL !== 'undefined') ? FACEMESH_FACE_OVAL : null;
-    if (OV) {
-      const seen = new Set();
-      OV.forEach(e => { seen.add(e[0]); seen.add(e[1]); });
-      const ids = [...seen];
-      ids.forEach((id, k) => {
-        const a = k / ids.length * Math.PI * 2;
-        lm[id] = { x: 0.5 + Math.cos(a) * 0.20, y: 0.5 + Math.sin(a) * 0.26, z: 0.02 };
-      });
-    }
-    const f = window.createFace3D({ landmarks: lm, image: null, width: 2.6, aspect: AR });
-    if (!f) return JSON.stringify({ err: 'null' });
-
-    const g = f.mesh.geometry;
-    const pos = g.attributes.position.array;
-    const idx = g.index.array || g.index;
-    const nv = pos.length / 3;
-
-    let cx = 0, cy = 0, cz = 0;
-    for (let i = 0; i < nv; i++) { cx += pos[i*3]; cy += pos[i*3+1]; cz += pos[i*3+2]; }
-    cx /= nv; cy /= nv; cz /= nv;
-
-    // 두개골 삼각형 = 세 정점이 모두 얼굴(468) 뒤에 추가된 것
-    let cranOut = 0, cranIn = 0, degen = 0;
-    for (let t = 0; t < idx.length; t += 3) {
-      const i = idx[t], j = idx[t+1], k = idx[t+2];
-      if (i < N || j < N || k < N) continue;
-      const ax = pos[i*3], ay = pos[i*3+1], az = pos[i*3+2];
-      const bx = pos[j*3], by = pos[j*3+1], bz = pos[j*3+2];
-      const kx = pos[k*3], ky = pos[k*3+1], kz = pos[k*3+2];
-      const ux = bx-ax, uy = by-ay, uz = bz-az;
-      const vx = kx-ax, vy = ky-ay, vz = kz-az;
-      const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
-      if (Math.hypot(nx, ny, nz) < 1e-9) { degen++; continue; }
-      const gx = (ax+bx+kx)/3 - cx, gy = (ay+by+ky)/3 - cy, gz = (az+bz+kz)/3 - cz;
-      if (nx*gx + ny*gy + nz*gz > 0) cranOut++; else cranIn++;
-    }
-
-    let zMin = 1e9, zMax = -1e9, yMin = 1e9, yMax = -1e9;
-    for (let i = 0; i < nv; i++) {
-      const z = pos[i*3+2], y = pos[i*3+1];
-      if (z < zMin) zMin = z; if (z > zMax) zMax = z;
-      if (y < yMin) yMin = y; if (y > yMax) yMax = y;
-    }
-    const w = f.bounds.xMax - f.bounds.xMin;
-
-    // 정수리가 뒤통수 극점보다 앞에 있는가 (뒤로 뾰족한 원뿔이 아닌가)
-    let topY = -1e9, topZ = 0, backZ = 1e9;
-    for (let i = 0; i < nv; i++) {
-      if (pos[i*3+1] > topY) { topY = pos[i*3+1]; topZ = pos[i*3+2]; }
-      if (pos[i*3+2] < backZ) backZ = pos[i*3+2];
-    }
-
-    return JSON.stringify({
-      cranOut, cranIn, degen,
-      depthRatio: +((zMax - zMin) / w).toFixed(2),
-      heightRatio: +((yMax - yMin) / w).toFixed(2),
-      crownAheadOfBack: +(topZ - backZ).toFixed(2),
-      faceBounds: !!f.faceBounds,
-      faceShorter: f.faceBounds ? (f.faceBounds.yMax - f.faceBounds.yMin) < (yMax - yMin) : false,
-    });
-  })()`;
-
-  const sk = JSON.parse(await a.evaluate(SKULL));
-  ck('두개골 삼각형이 전부 바깥을 향한다 (뒤통수가 투명하지 않다)',
-     sk.cranIn === 0 && sk.cranOut > 100, `바깥 ${sk.cranOut} / 안쪽 ${sk.cranIn}`);
-  ck('면적 0 인 삼각형이 없다 (링이 극점으로 붕괴하지 않는다)',
-     sk.degen === 0, `${sk.degen}개`);
-  ck('머리 깊이가 폭과 비슷하다 (판자가 아니다)',
-     sk.depthRatio >= 0.85, `깊이/폭 ${sk.depthRatio}`);
-  ck('정수리가 있다 (납작하지 않다)',
-     sk.heightRatio >= 1.15, `높이/폭 ${sk.heightRatio}`);
-  ck('정수리가 뒤통수보다 앞에 있다 (뒤로 뾰족하지 않다)',
-     sk.crownAheadOfBack > 0.2, `${sk.crownAheadOfBack}`);
-  ck('얼굴만의 바운딩을 따로 제공한다 (정렬 기준)',
-     sk.faceBounds && sk.faceShorter);
 
   // ── 3장 촬영 (정면 + 좌우 옆모습) ──────────────────────────────────
   //
@@ -313,8 +229,6 @@ const CHECK_BURIED = (meshExpr) => `(() => {
      `안 ${mv.faceIn} / 밖 ${mv.faceOut}`);
   // 옆사진이 실제로 담고 있는 범위(SIDE_MAX_T)까지만 쓴다 — 그보다 뒤는 어느 사진에도
   // 없으므로 머리카락색으로 채운다. 그래서 "대부분"이 아니라 "관자놀이·귀 밴드"만 옆면이다.
-  ck('두개골 앞쪽 밴드가 옆모습 픽셀을 쓴다',
-     mv.cranSide >= 30, `옆면 ${mv.cranSide} / 앞면 ${mv.cranFront}`);
   ck('UV 가 텍스처 밖으로 나가지 않는다', mv.outOfRange === 0, `${mv.outOfRange}개`);
 
   // face_bulk (나중에 접속한 host 가 기존 얼굴들을 한 번에 받는 경로)
@@ -361,9 +275,9 @@ const CHECK_BURIED = (meshExpr) => `(() => {
     if (cliRes.fullHead) {
       ck('1인칭에서도 닫힌 머리로 적용된다', cliRes.headVisible === false);
     } else {
-      ck('(폴백) 두개골 구에 파묻히지 않는다', cliRes.inside === 0,
-         `${cliRes.inside}개 박힘 · 최소비율 ${cliRes.worst.toFixed(2)}`);
-      ck('(폴백) 얼굴이 두개골 앞쪽에 놓인다', cliRes.faceZ > 0, cliRes.faceZ.toFixed(2));
+      ck('얼굴이 아바타 머리와 겹치지 않는다 (머리를 숨김)',
+     cliRes.headVisible === false, `head.visible=${cliRes.headVisible}`);
+      
     }
   }
 

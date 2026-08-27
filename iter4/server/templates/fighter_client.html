@@ -1568,13 +1568,18 @@
      * Face Mesh 는 어느 각도에서든 **같은 468개 정점**을 돌려준다. 그래서 view 사이에
      * 대응점을 찾는 정합 과정이 필요 없다 — 같은 번호가 곧 같은 지점이다.
      */
+    // **정면 1장만 찍는다.**
+    //
+    // 옆모습 2장을 더 찍어 관자놀이·귀·뒷머리를 채우는 것을 시도했지만, 실제로 써 보니
+    // 얼굴이 일그러지고 어두워졌다. 옆모습은 조명·각도가 정면과 달라 텍스처가 튀고,
+    // 촬영 자체도 세 번이라 번거롭다. 뒤통수가 아쉬운 것보다 **얼굴이 제대로 나오는 쪽**이
+    // 훨씬 중요하다는 판단이다.
+    //
+    // 아틀라스·옆모습 투영 코드는 face3d.js 에 그대로 남아 있다 — 넘겨주지 않으면
+    // 자동으로 1장 경로로 돈다. 나중에 되살릴 때 이 배열만 되돌리면 된다.
     const CAP_STAGES = [
       { key: 'front', title: '정면을 봐주세요',
-        desc: '얼굴을 원 안에 맞추고 카메라를 정면으로 봅니다.' },
-      { key: 'sideA', title: '고개를 한쪽으로 돌려주세요',
-        desc: '귀가 보일 만큼 천천히 돌립니다. 눈은 카메라를 안 봐도 됩니다.' },
-      { key: 'sideB', title: '이제 반대쪽으로 돌려주세요',
-        desc: '같은 정도로 반대쪽을 보여줍니다.' },
+        desc: '얼굴을 원 안에 맞추고 카메라를 정면으로 봅니다.<br>안경·모자는 벗는 편이 정확합니다.' },
     ];
     const YAW_MIN = 0.22;     // 이만큼은 돌아가야 옆모습으로 친다
     const YAW_MAX = 0.62;     // 너무 돌면 랜드마크 신뢰도가 떨어진다
@@ -1712,7 +1717,9 @@
       }
 
       const got = capState.frames.length, want = capState.want;
-      capEls.title.innerText = '촬영 중 — 그대로 계세요 (' + (capState.stage + 1) + '/3)';
+      capEls.title.innerText = CAP_STAGES.length > 1
+        ? '촬영 중 — 그대로 계세요 (' + (capState.stage + 1) + '/' + CAP_STAGES.length + ')'
+        : '촬영 중 — 그대로 계세요';
       capEls.count.innerText = got + '/' + want;
       if (got >= want) finishStage();
     }
@@ -1776,9 +1783,26 @@
       const sideNeg = shots.find((v, i) => i > 0 && v && v.yaw < 0) || null;
       const sidePos = shots.find((v, i) => i > 0 && v && v.yaw > 0) || null;
 
-      // ── 텍스처 아틀라스 ────────────────────────────────────────────
-      // 앞면 512 + 옆면 256 x 2 를 한 장으로 묶는다. 이미지를 세 개 보내면 전송량도
-      // 늘고 face3d 쪽에서 텍스처를 세 개 물려야 한다. 한 장이면 기존 경로가 그대로 산다.
+      // ── 옆모습이 없으면 (정면 1장 촬영) 아틀라스를 만들지 않는다 ──────
+      //
+      // 아틀라스를 쓰면 512x512 얼굴이 1024x512 의 왼쪽 절반에만 들어가 해상도가 그대로
+      // 절반이 된다. 옆모습을 안 찍는데 그 대가를 치를 이유가 없다.
+      if (!sideNeg && !sidePos) {
+        const tc1 = document.createElement('canvas');
+        tc1.width = 512; tc1.height = 512;
+        tc1.getContext('2d').drawImage(f0.image, f0.crop.x0, f0.crop.y0, f0.crop.w, f0.crop.h,
+                                       0, 0, 512, 512);
+        const blob1 = window.serializeFace(lm, tc1, {
+          aspect: f0.imageW / f0.imageH,
+          crop: f0.crop,
+          imageW: f0.imageW, imageH: f0.imageH,
+          uvLandmarks: f0.uvLm,
+        }, 0.86);
+        finishWithBlob(blob1);
+        return;
+      }
+
+      // ── 텍스처 아틀라스 (옆모습이 있을 때만) ────────────────────────
       const AW = 1024, AH = 512;
       const tc = document.createElement('canvas');
       tc.width = AW; tc.height = AH;
@@ -1813,12 +1837,17 @@
         },
       }, 0.82);
 
+      finishWithBlob(blob);
+    }
+
+    /** 복원된 얼굴을 화면·서버·미리보기에 반영한다 (1장/3장 경로 공용) */
+    function finishWithBlob(blob) {
       stopCapture();
       capEls.title.innerText = '복원 완료 — 아바타에 적용했습니다';
       capEls.count.innerText = '';
-      capEls.desc.innerHTML = '3장 융합 · 랜드마크 468개 · 텍스처 '
+      capEls.desc.innerHTML = '랜드마크 468개 · 텍스처 '
         + Math.round(blob.tex.length / 1024)
-        + 'KB<br>옆모습으로 관자놀이·귀·뒷머리를 채웠습니다.';
+        + 'KB<br>다른 파이터·host 화면에도 이 얼굴로 보입니다.';
       capEls.start.innerText = '다시 촬영';
       capEls.skip.innerText = '닫기';
 
