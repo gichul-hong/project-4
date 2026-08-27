@@ -551,7 +551,19 @@
     // 그래서 얼굴 테두리(FACE_OVAL 36점)에서 출발해 **뒤로 쓸어 넘겨 두개골을 만든다.**
     // 테두리를 적도로 보고 뒤쪽 극점까지 위도를 나눠 링을 쌓으면 닫힌 반구가 된다.
     // 테두리에서 시작하므로 이음매가 정확히 맞고, 사람마다 다른 얼굴 윤곽을 그대로 따라간다.
-    const oval = getFaceOval();
+    // **뒤통수를 만들지 않는다.**
+    //
+    // 얼굴 테두리(FACE_OVAL)에서 두개골을 쓸어 만들어 봤지만, 실제 얼굴에서는
+    // 뒤로 뾰족한 혹처럼 튀어나왔다. 테두리 모양·깊이가 사람마다 크게 달라
+    // 상수 몇 개로 맞출 수 있는 문제가 아니다. 사진에 없는 것을 지어내는 일이라
+    // 어느 각도에서는 반드시 티가 난다.
+    //
+    // 대신 humanoid 의 **구형 두개골**을 그대로 두고 얼굴만 앞면에 얹는다.
+    // 머리 모양이 평범해서 어색하지 않고, 얼굴은 사진 그대로 나온다.
+    //
+    // 생성 코드는 아래에 그대로 남겨 둔다 — 되살리려면 이 상수만 true 로 바꾸면 된다.
+    const BUILD_CRANIUM = false;
+    const oval = BUILD_CRANIUM ? getFaceOval() : null;
     const RINGS = 9;                       // 적도 → 극점 사이 링 개수
     const BACK_DEPTH = 1.76;               // 뒤통수 깊이 (테두리 반지름 대비)
     // 정수리 높이. FACE_OVAL 의 맨 위는 이마 헤어라인이라 그 위 두개골이 통째로 없다.
@@ -836,10 +848,26 @@
       // **머리 바깥을 머리카락색으로 덮은 사본**을 텍스처로 쓴다.
       // 그러지 않으면 두개골 UV 가 천장·벽을 찍는다(실제로 그랬다).
       const regions = opts.atlas || { front: { x: 0, y: 0, w: 1, h: 1 } };
+      // **좌표계를 맞춘다.**
+      //
+      // 랜드마크는 카메라 **전체 프레임** 기준 0~1 인데, 텍스처는 얼굴만 잘라낸 사진이다.
+      // 그대로 넘기면 머리 타원이 엉뚱한 자리에 그려져 **얼굴 대부분을 머리카락색으로
+      // 덮어버린다** — 실제로 눈·코만 남고 나머지가 까맣게 나왔다.
+      // UV 를 계산할 때와 똑같이 crop 을 통과시켜 잘라낸 사진 기준으로 바꿔 준다.
+      const toCropSpace = (arr, cp, iw, ih) => {
+        if (!arr) return null;
+        if (!cp) return arr;
+        return arr.map(q => ({
+          x: (q.x * iw - cp.x0) / cp.w,
+          y: (q.y * ih - cp.y0) / cp.h,
+        }));
+      };
+      const sn = opts.sideViews && opts.sideViews.neg;
+      const sp = opts.sideViews && opts.sideViews.pos;
       const lmByKey = {
-        front: opts.uvLandmarks || lm,
-        sideNeg: (opts.sideViews && opts.sideViews.neg) ? opts.sideViews.neg.lm : null,
-        sidePos: (opts.sideViews && opts.sideViews.pos) ? opts.sideViews.pos.lm : null,
+        front: toCropSpace(opts.uvLandmarks || lm, crop, IW, IH),
+        sideNeg: sn ? toCropSpace(sn.lm, sn.crop, sn.imageW || 1, sn.imageH || 1) : null,
+        sidePos: sp ? toCropSpace(sp.lm, sp.crop, sp.imageW || 1, sp.imageH || 1) : null,
       };
       const painted = paintOutsideHead(opts.image, regions, lmByKey, HEAD_EXPAND);
       const src = painted ? painted.canvas : opts.image;
