@@ -134,6 +134,65 @@
   }
 
   /**
+   * 메시의 **구멍**을 찾는다.
+   *
+   * FACEMESH_TESSELATION 은 눈꺼풀·입술의 *둘레*만 덮고 **그 안쪽은 비워 둔다.**
+   * 실측하면 852개 삼각형 중 눈 윤곽 정점만으로 이뤄진 삼각형이 **0개**다.
+   * 그래서 눈·입 자리에는 그릴 면이 아예 없고, 뚫린 구멍으로 머리 안쪽이 들여다보인다.
+   * "눈이 사라진다"의 정체가 이것이다 — 텍스처에 눈이 찍혀 있어도 붙일 면이 없다.
+   *
+   * 경계 간선(삼각형 **하나에만** 속하는 간선)을 이어 붙이면 닫힌 루프가 나온다.
+   * 실측 결과 4개다 — 얼굴 바깥 테두리(36점) · 입(20점) · 양눈(16점씩).
+   * 가장 큰 루프는 얼굴 바깥선이므로 제외하고 나머지를 구멍으로 본다.
+   *
+   * 인덱스를 하드코딩하지 않는다. 토폴로지가 바뀌어도(라이브러리 버전 차이) 따라간다.
+   *
+   * @param {number[]} tris 삼각형 인덱스 배열 (3개씩)
+   * @returns {number[][]} 구멍 루프들 (각각 순서 있는 정점 인덱스)
+   */
+  function findHoles(tris) {
+    const count = new Map();
+    const key = (a, b) => (a < b ? a + '_' + b : b + '_' + a);
+    for (let t = 0; t < tris.length; t += 3) {
+      const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+      for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+        const k = key(p, q);
+        count.set(k, (count.get(k) || 0) + 1);
+      }
+    }
+    // 경계 간선만 남긴다
+    const adj = new Map();
+    for (const [k, c] of count) {
+      if (c !== 1) continue;
+      const [a, b] = k.split('_').map(Number);
+      if (!adj.has(a)) adj.set(a, []);
+      if (!adj.has(b)) adj.set(b, []);
+      adj.get(a).push(b);
+      adj.get(b).push(a);
+    }
+    // 이어 붙여 루프로
+    const seen = new Set(), loops = [];
+    for (const start of adj.keys()) {
+      if (seen.has(start)) continue;
+      const loop = [start];
+      seen.add(start);
+      let cur = start;
+      for (;;) {
+        const nxt = (adj.get(cur) || []).find(x => !seen.has(x));
+        if (nxt === undefined) break;
+        seen.add(nxt);
+        loop.push(nxt);
+        cur = nxt;
+      }
+      if (loop.length >= 3) loops.push(loop);
+    }
+    if (!loops.length) return [];
+    // 가장 큰 루프 = 얼굴 바깥 테두리. 이건 뒤통수를 붙일 자리이므로 메우면 안 된다.
+    loops.sort((a, b) => b.length - a.length);
+    return loops.slice(1);
+  }
+
+  /**
    * FACEMESH_FACE_OVAL 에서 **순서 있는 테두리 루프**를 뽑는다.
    * 간선 목록은 [a,b] 쌍이고 닫힌 고리를 이룬다(36개). 이어 붙여 정점 순서를 복원한다.
    * 이 고리가 "얼굴이 끝나는 선"이고, 여기서 뒤통수를 만들어 붙인다.
@@ -283,6 +342,9 @@
     const basePos = normalizeLandmarks(lm, width, opts.aspect || 1);
     const index = fixWinding(basePos, tris.slice());
 
+    // 눈·입은 테셀레이션에 **구멍**으로 남아 있다. 여기서 찾아 두고 아래에서 메운다.
+    const holeLoops = findHoles(index);
+
     // UV = 랜드마크의 2D 화면 좌표. 사진과 랜드마크가 **같은 프레임**에서 나왔으므로
     // 이 매핑이 곧 정확한 텍스처 정합이 된다 (얼굴 정렬 과정이 따로 필요 없다).
     //
@@ -388,7 +450,9 @@
     const geo = new THREE.BufferGeometry();
     const livePos = new Float32Array(basePos);          // 변형이 적용된 실제 정점
     // 얼굴 + 두개골을 하나의 버퍼로 합친다.
-    const totalV = lm.length + craniumPos.length / 3;
+    // 구멍마다 중심 정점을 하나씩 추가해 부채꼴로 메운다.
+    const holeStart = lm.length + craniumPos.length / 3;
+    const totalV = holeStart + holeLoops.length;
     const allPos = new Float32Array(totalV * 3);
     const allUV = new Float32Array(totalV * 2);
     allPos.set(livePos, 0);
@@ -415,6 +479,43 @@
         index.push(ringIdx(RINGS, i), pole, ringIdx(RINGS, i + 1));
       }
     }
+
+    // ── 눈·입 구멍 메우기 ────────────────────────────────────────────
+    //
+    // 각 루프의 중심에 정점을 하나 놓고 부채꼴로 잇는다. 중심은 **살짝 안쪽**으로
+    // 밀어 넣는다 — 평면으로 메우면 눈이 스티커처럼 붙지만, 안으로 들어가면
+    // 눈두덩 그늘이 생겨 안구가 들어앉은 것처럼 읽힌다. 입도 같은 이유로 오목하게.
+    //
+    // UV 는 루프 UV 의 평균이다. 그 자리가 사진에서 정확히 눈동자·입 안쪽이므로
+    // 텍스처가 그대로 얹힌다. (z 는 카메라 쪽이 +. 안쪽 = 더 작은 z)
+    const HOLE_SINK = 0.30;         // 중심을 얼마나 밀어 넣을지 (구멍 반지름 대비)
+    const holeInfo = [];            // update() 가 변형을 따라가게 하려고 보관
+    holeLoops.forEach((loop, h) => {
+      const vi = holeStart + h;
+      let cx = 0, cy = 0, cz = 0, cu = 0, cv = 0;
+      for (const idx of loop) {
+        cx += allPos[idx * 3]; cy += allPos[idx * 3 + 1]; cz += allPos[idx * 3 + 2];
+        cu += allUV[idx * 2];  cv += allUV[idx * 2 + 1];
+      }
+      const n = loop.length;
+      cx /= n; cy /= n; cz /= n; cu /= n; cv /= n;
+      // 구멍 반지름 = 중심에서 테두리까지 평균 거리
+      let rad = 0;
+      for (const idx of loop) {
+        rad += Math.hypot(allPos[idx * 3] - cx, allPos[idx * 3 + 1] - cy);
+      }
+      rad /= n;
+      const sink = rad * HOLE_SINK;
+      allPos[vi * 3] = cx; allPos[vi * 3 + 1] = cy; allPos[vi * 3 + 2] = cz - sink;
+      allUV[vi * 2] = cu;  allUV[vi * 2 + 1] = cv;
+      holeInfo.push({ loop, sink, vi });
+
+      // 부채꼴. 감기 방향은 얼굴 나머지와 맞춰야 앞면이 뒤집히지 않는다.
+      const fan = [];
+      for (let i = 0; i < n; i++) fan.push(vi, loop[i], loop[(i + 1) % n]);
+      fixWinding(allPos, fan);
+      for (const t of fan) index.push(t);
+    });
 
     geo.setAttribute('position', new THREE.BufferAttribute(allPos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(allUV, 2));
@@ -613,6 +714,18 @@
         }
 
         pos[i3] = x; pos[i3 + 1] = y; pos[i3 + 2] = z;
+      }
+
+      // 눈·입 구멍의 중심 정점은 테두리를 따라간다. 고정해 두면 얼굴이 눌릴 때
+      // 눈만 제자리에 남아 구멍 밖으로 삐져나온다.
+      for (const h of holeInfo) {
+        let cx = 0, cy = 0, cz = 0;
+        for (const idx of h.loop) {
+          cx += pos[idx * 3]; cy += pos[idx * 3 + 1]; cz += pos[idx * 3 + 2];
+        }
+        const k = h.loop.length;
+        const v3 = h.vi * 3;
+        pos[v3] = cx / k; pos[v3 + 1] = cy / k; pos[v3 + 2] = cz / k - h.sink;
       }
 
       geo.attributes.position.needsUpdate = true;
