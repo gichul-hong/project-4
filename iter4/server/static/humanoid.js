@@ -523,7 +523,9 @@
           skinMat.color.setHex(faceObj.skinTone);
         }
 
-        const fb = faceObj.bounds;
+        // **얼굴 기준으로 정렬한다.** 두개골까지 포함한 바운딩을 쓰면 정수리를
+        // 세운 만큼 중심이 올라가 얼굴이 아래로 처진다(턱이 가슴에 파묻힌다).
+        const fb = faceObj.faceBounds || faceObj.bounds;
         const fullHead = !!faceObj.isFullHead;
 
         // 머리 크기에 맞춘다. 호출부가 어떤 width 로 만들었든 여기서 실측 폭으로 다시 맞춘다.
