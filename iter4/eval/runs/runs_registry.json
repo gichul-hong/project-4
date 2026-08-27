@@ -69,6 +69,45 @@
       "timing_err_ms": 169.7,
       "config_path": "C:\\hong\\project-4\\iter4\\eval\\configs\\v5_tcn_optimized.json",
       "run_dir": "C:\\hong\\project-4\\iter4\\eval\\runs\\v5_tcn_optimized"
+    },
+    {
+      "version": "v6b_tcn_trigger",
+      "timestamp": "2026-08-27 12:13:36",
+      "f1": 0.4928,
+      "precision": 0.425,
+      "recall": 0.5862,
+      "tp": 17,
+      "fp": 23,
+      "fn": 12,
+      "non_action_fp": 0,
+      "timing_err_ms": 145.2,
+      "config_path": "eval/configs/v6b_tcn_trigger.json",
+      "run_dir": "eval/runs/v6b_tcn_trigger",
+      "note": "full-90s reference ONLY, NOT leakage-free (train region included). See test_only_leakage_free for the valid held-out metric.",
+      "test_only_leakage_free": {
+        "f1": 0.5714,
+        "precision": 0.5,
+        "recall": 0.6667,
+        "tp": 10,
+        "fp": 10,
+        "fn": 5,
+        "kind_accuracy": 0.6,
+        "n_test_gt_events": 15
+      }
+    },
+    {
+      "version": "v5c_tcn_hybrid_gate",
+      "timestamp": "2026-08-27 12:49:49",
+      "f1": 0.5763,
+      "precision": 0.5667,
+      "recall": 0.5862,
+      "tp": 17,
+      "fp": 13,
+      "fn": 12,
+      "non_action_fp": 0,
+      "timing_err_ms": 155.2,
+      "config_path": "C:\\DS_Team2\\project-4\\iter4\\eval\\configs\\v5c_tcn_hybrid_gate.json",
+      "run_dir": "C:\\DS_Team2\\project-4\\iter4\\eval\\runs\\v5c_tcn_hybrid_gate"
     }
   ]
 }

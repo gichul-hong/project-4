@@ -56,7 +56,7 @@ def extract_pose_stage(video_path: Path, out_jsonl: Path, force: bool = False):
     print(f"✅ [Stage 1] 랜드마크 추출 완료: {out_jsonl}")
 
 
-def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, engine: str = "rule", annotate_video: Path = None, raw_video: Path = None):
+def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, config_path: Path = None, engine: str = "rule", annotate_video: Path = None, raw_video: Path = None, tcn_model_dir: Path = None):
     """Stage 2: Action Detection & Kinematics Engine."""
     print(f"⚙️ [Stage 2] 펀치 엔진 동작 판정 중... (Engine: {engine.upper()})")
     cmd = [
@@ -72,6 +72,8 @@ def inference_stage(jsonl_path: Path, out_dir: Path, labels_path: Path = None, c
         cmd.extend(["--labels", str(labels_path)])
     if annotate_video and raw_video:
         cmd.extend(["--annotate", str(annotate_video), str(raw_video)])
+    if tcn_model_dir:
+        cmd.extend(["--tcn-model-dir", str(tcn_model_dir)])
 
     # stdout 을 실시간으로 흘려야 TCN 로드/폴백 로그가 보인다.
     res = subprocess.run(cmd, text=True)
@@ -342,7 +344,8 @@ def update_runs_registry(runs_dir: Path, version_tag: str, metrics: dict, phase_
 def main():
     ap = argparse.ArgumentParser(description="Version-Controlled End-to-End Boxing Benchmark Pipeline")
     ap.add_argument("--version", default=None, help="Version tag (e.g. v1_baseline, v4_tcn_hybrid)")
-    ap.add_argument("--engine", default="rule", choices=["rule", "tcn"], help="Punch classification engine (rule or tcn)")
+    ap.add_argument("--engine", default="rule", choices=["rule", "tcn", "tcn_trigger", "tcn_hybrid"], help="Punch classification engine (rule, tcn, tcn_trigger, or tcn_hybrid)")
+    ap.add_argument("--tcn-model-dir", default=None, help="Override dir containing boxing_tcn.pth + boxing_tcn_scaler.json")
     ap.add_argument("--config", default=None, help="Path to version config JSON (e.g. iter4/eval/configs/v4_tcn_hybrid.json)")
     ap.add_argument("--video", default=str(SCRIPT_DIR / "video" / "benchmark.mp4"), help="Input video file")
     ap.add_argument("--labels", default=str(SCRIPT_DIR / "video" / "benchmark_labels.json"), help="Ground truth labels JSON")
@@ -401,7 +404,8 @@ def main():
     extract_pose_stage(video_path, jsonl_path, force=args.force_extract)
 
     # Stage 2: Action Inference
-    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine)
+    tcn_model_dir = Path(args.tcn_model_dir).resolve() if args.tcn_model_dir else None
+    inference_stage(jsonl_path, out_dir, labels_path=labels_path, config_path=config_path, engine=args.engine, tcn_model_dir=tcn_model_dir)
     punches = load_predictions(csv_path)
 
     # Stage 3: Scoring & Metrics

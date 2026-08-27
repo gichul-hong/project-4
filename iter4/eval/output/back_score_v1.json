@@ -1,0 +1,169 @@
+{
+  "source_report": "eval/output/back_report_v1.json",
+  "source_labels": "eval/video/benchmark_movement_back_labels.json",
+  "move_axis": {
+    "frame_accuracy": 0.3006597549481621,
+    "confusion_matrix": {
+      "NONE": {
+        "NONE": 300,
+        "FORWARD": 241,
+        "BACK": 70,
+        "LEFT": 0,
+        "RIGHT": 0
+      },
+      "FORWARD": {
+        "NONE": 0,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 0,
+        "RIGHT": 0
+      },
+      "BACK": {
+        "NONE": 348,
+        "FORWARD": 83,
+        "BACK": 19,
+        "LEFT": 0,
+        "RIGHT": 0
+      },
+      "LEFT": {
+        "NONE": 0,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 0,
+        "RIGHT": 0
+      },
+      "RIGHT": {
+        "NONE": 0,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 0,
+        "RIGHT": 0
+      }
+    },
+    "per_class": {
+      "NONE": {
+        "tp": 300,
+        "fp": 348,
+        "fn": 311,
+        "precision": 0.46296296296296297,
+        "recall": 0.4909983633387889,
+        "f1": 0.4765687053216839
+      },
+      "FORWARD": {
+        "tp": 0,
+        "fp": 324,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": null,
+        "f1": null
+      },
+      "BACK": {
+        "tp": 19,
+        "fp": 70,
+        "fn": 431,
+        "precision": 0.21348314606741572,
+        "recall": 0.042222222222222223,
+        "f1": 0.07050092764378478
+      },
+      "LEFT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": null,
+        "recall": null,
+        "f1": null
+      },
+      "RIGHT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": null,
+        "recall": null,
+        "f1": null
+      }
+    },
+    "segment_latencies": [
+      {
+        "desc": "뒤로 최대한 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요",
+        "state": "BACK",
+        "start_ms": 6000,
+        "end_ms": 11000,
+        "onset_latency_ms": 4366,
+        "offset_latency_ms": 2333,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "살짝만 뒤로 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요",
+        "state": "BACK",
+        "start_ms": 16000,
+        "end_ms": 21000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "다시 한 번 크게 젖히기 — 고개를 숙이지 마세요! 어깨~머리가 통짜인 것처럼 몸 전체를 젖히세요",
+        "state": "BACK",
+        "start_ms": 26000,
+        "end_ms": 31000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      }
+    ],
+    "negative_window_fp_rate": null,
+    "negative_windows": []
+  },
+  "rot_axis": {
+    "frame_accuracy": 1.0,
+    "confusion_matrix": {
+      "NONE": {
+        "NONE": 1061,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      },
+      "ROT_LEFT": {
+        "NONE": 0,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      },
+      "ROT_RIGHT": {
+        "NONE": 0,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      }
+    },
+    "per_class": {
+      "NONE": {
+        "tp": 1061,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "ROT_LEFT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": null,
+        "recall": null,
+        "f1": null
+      },
+      "ROT_RIGHT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": null,
+        "recall": null,
+        "f1": null
+      }
+    },
+    "segment_latencies": [],
+    "negative_window_fp_rate": null,
+    "negative_windows": []
+  }
+}

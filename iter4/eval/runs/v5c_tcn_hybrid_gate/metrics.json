@@ -1,0 +1,282 @@
+{
+  "tolerance_ms": 400,
+  "ground_truth": 29,
+  "predicted": 30,
+  "tp": 17,
+  "fp": 13,
+  "fn": 12,
+  "precision": 0.5667,
+  "recall": 0.5862,
+  "f1": 0.5763,
+  "kind_accuracy": 0.5882,
+  "side_accuracy": 0.7059,
+  "timing_error_ms_mean": 155.2,
+  "timing_error_ms_max": 367,
+  "confusion": {
+    "STRAIGHT->STRAIGHT": 8,
+    "HOOK->STRAIGHT": 2,
+    "HOOK->HOOK": 1,
+    "UPPERCUT->HOOK": 2,
+    "STRAIGHT->UPPERCUT": 2,
+    "STRAIGHT->HOOK": 1,
+    "UPPERCUT->UPPERCUT": 1
+  },
+  "matches": [
+    {
+      "pred_index": 0,
+      "pred_t_ms": 7500,
+      "label_t_ms": 7500,
+      "dt_ms": 0
+    },
+    {
+      "pred_index": 26,
+      "pred_t_ms": 80033,
+      "label_t_ms": 80000,
+      "dt_ms": 33
+    },
+    {
+      "pred_index": 23,
+      "pred_t_ms": 76466,
+      "label_t_ms": 76500,
+      "dt_ms": 34
+    },
+    {
+      "pred_index": 13,
+      "pred_t_ms": 26733,
+      "label_t_ms": 26666,
+      "dt_ms": 67
+    },
+    {
+      "pred_index": 5,
+      "pred_t_ms": 11233,
+      "label_t_ms": 11133,
+      "dt_ms": 100
+    },
+    {
+      "pred_index": 7,
+      "pred_t_ms": 13033,
+      "label_t_ms": 13133,
+      "dt_ms": 100
+    },
+    {
+      "pred_index": 2,
+      "pred_t_ms": 8866,
+      "label_t_ms": 9000,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 10,
+      "pred_t_ms": 24366,
+      "label_t_ms": 24500,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 25,
+      "pred_t_ms": 78766,
+      "label_t_ms": 78900,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 20,
+      "pred_t_ms": 43366,
+      "label_t_ms": 43500,
+      "dt_ms": 134
+    },
+    {
+      "pred_index": 24,
+      "pred_t_ms": 77100,
+      "label_t_ms": 76933,
+      "dt_ms": 167
+    },
+    {
+      "pred_index": 29,
+      "pred_t_ms": 82566,
+      "label_t_ms": 82366,
+      "dt_ms": 200
+    },
+    {
+      "pred_index": 18,
+      "pred_t_ms": 41733,
+      "label_t_ms": 41500,
+      "dt_ms": 233
+    },
+    {
+      "pred_index": 27,
+      "pred_t_ms": 80700,
+      "label_t_ms": 80466,
+      "dt_ms": 234
+    },
+    {
+      "pred_index": 28,
+      "pred_t_ms": 81533,
+      "label_t_ms": 81800,
+      "dt_ms": 267
+    },
+    {
+      "pred_index": 15,
+      "pred_t_ms": 28200,
+      "label_t_ms": 28500,
+      "dt_ms": 300
+    },
+    {
+      "pred_index": 22,
+      "pred_t_ms": 45133,
+      "label_t_ms": 45500,
+      "dt_ms": 367
+    }
+  ],
+  "version": "v5c_tcn_hybrid_gate",
+  "source_video": "C:\\DS_Team2\\project-4\\iter4\\eval\\video\\benchmark.mp4",
+  "phase_analysis": {
+    "rest_fp": 0,
+    "footwork_fp": 0,
+    "non_action_fp_total": 0,
+    "phases": [
+      {
+        "phase": "1. 준비 (Calibration)",
+        "range": "00~06s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "2. 직선 펀치 (Straight)",
+        "range": "06~19s",
+        "is_action": true,
+        "detected": 9,
+        "fp": 0,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 1)",
+        "range": "19~23s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "3. 훅 펀치 (Hook)",
+        "range": "23~35s",
+        "is_action": true,
+        "detected": 8,
+        "fp": 0,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_HOOK",
+          "LEFT_UPPERCUT",
+          "LEFT_HOOK",
+          "RIGHT_CROSS",
+          "RIGHT_UPPERCUT",
+          "LEFT_JAB",
+          "LEFT_JAB"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 2)",
+        "range": "35~40s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "4. 어퍼컷 (Uppercut)",
+        "range": "40~52s",
+        "is_action": true,
+        "detected": 6,
+        "fp": 0,
+        "punches": [
+          "LEFT_JAB",
+          "LEFT_UPPERCUT",
+          "LEFT_UPPERCUT",
+          "LEFT_HOOK",
+          "RIGHT_HOOK",
+          "RIGHT_HOOK"
+        ]
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 3)",
+        "range": "52~57s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "5. 풋워크 (Footwork)",
+        "range": "57~70s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "⏸ 숨고르기 (Rest 4)",
+        "range": "70~75s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      },
+      {
+        "phase": "6. 실전 콤보 (Combos)",
+        "range": "75~85s",
+        "is_action": true,
+        "detected": 7,
+        "fp": 0,
+        "punches": [
+          "RIGHT_CROSS",
+          "LEFT_UPPERCUT",
+          "RIGHT_CROSS",
+          "LEFT_JAB",
+          "LEFT_UPPERCUT",
+          "LEFT_JAB",
+          "RIGHT_HOOK"
+        ]
+      },
+      {
+        "phase": "7. 마무리 (Cooldown)",
+        "range": "85~90s",
+        "is_action": false,
+        "detected": 0,
+        "fp": 0,
+        "punches": []
+      }
+    ]
+  },
+  "test_gt_only_honest_metrics": {
+    "tolerance_ms": 400,
+    "ground_truth": 15,
+    "predicted": 30,
+    "tp": 10,
+    "fp": 20,
+    "fn": 5,
+    "precision": 0.3333,
+    "recall": 0.6667,
+    "f1": 0.4444,
+    "kind_accuracy": 0.5,
+    "side_accuracy": 0.6,
+    "timing_error_ms_mean": 183.6,
+    "timing_error_ms_max": 367,
+    "confusion": {
+      "STRAIGHT->STRAIGHT": 5,
+      "STRAIGHT->UPPERCUT": 2,
+      "STRAIGHT->HOOK": 1,
+      "HOOK->STRAIGHT": 1,
+      "UPPERCUT->HOOK": 1
+    }
+  },
+  "test_gt_only_honest_metrics_NOTE": "motion_learning/v6b_tcn_trigger 모델은 TEST_GT 15개(및 purge 반경 내)를 학습에서 완전히 제외하고 학습됐다. 이 필드는 그 15개만 정답으로 써서 leakage 없이 채점한 결과이며, 위쪽 최상위 tp/fp/fn/precision/recall/f1(전체 29개 GT 기준)은 TRAIN_GT 14개를 포함해 다소 낙관적이다. 두 관점 모두 v5(rule-trigger, F1 0.379)/v5b(TCN 단독 트리거, TEST_GT F1 0.32)보다 개선됐다."
+}

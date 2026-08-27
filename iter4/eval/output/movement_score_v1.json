@@ -1,0 +1,372 @@
+{
+  "source_report": "eval/output/movement_report_v1.json",
+  "source_labels": "eval/video/benchmark_movement_labels.json",
+  "move_axis": {
+    "frame_accuracy": 0.6553610503282276,
+    "confusion_matrix": {
+      "NONE": {
+        "NONE": 2438,
+        "FORWARD": 531,
+        "BACK": 0,
+        "LEFT": 54,
+        "RIGHT": 167
+      },
+      "FORWARD": {
+        "NONE": 280,
+        "FORWARD": 241,
+        "BACK": 0,
+        "LEFT": 79,
+        "RIGHT": 0
+      },
+      "BACK": {
+        "NONE": 300,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 0,
+        "RIGHT": 0
+      },
+      "LEFT": {
+        "NONE": 114,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 156,
+        "RIGHT": 0
+      },
+      "RIGHT": {
+        "NONE": 50,
+        "FORWARD": 0,
+        "BACK": 0,
+        "LEFT": 0,
+        "RIGHT": 160
+      }
+    },
+    "per_class": {
+      "NONE": {
+        "tp": 2438,
+        "fp": 744,
+        "fn": 752,
+        "precision": 0.7661847894406034,
+        "recall": 0.7642633228840126,
+        "f1": 0.7652228499686127
+      },
+      "FORWARD": {
+        "tp": 241,
+        "fp": 531,
+        "fn": 359,
+        "precision": 0.3121761658031088,
+        "recall": 0.40166666666666667,
+        "f1": 0.35131195335276966
+      },
+      "BACK": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 300,
+        "precision": null,
+        "recall": 0.0,
+        "f1": null
+      },
+      "LEFT": {
+        "tp": 156,
+        "fp": 133,
+        "fn": 114,
+        "precision": 0.5397923875432526,
+        "recall": 0.5777777777777777,
+        "f1": 0.5581395348837209
+      },
+      "RIGHT": {
+        "tp": 160,
+        "fp": 167,
+        "fn": 50,
+        "precision": 0.4892966360856269,
+        "recall": 0.7619047619047619,
+        "f1": 0.595903165735568
+      }
+    },
+    "segment_latencies": [
+      {
+        "desc": "어깨를 수평으로 유지한 채 크게 앞으로 숙이기",
+        "state": "FORWARD",
+        "start_ms": 6000,
+        "end_ms": 11000,
+        "onset_latency_ms": 2033,
+        "offset_latency_ms": 3466,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "어깨 수평 유지, 살짝만 앞으로 숙이기",
+        "state": "FORWARD",
+        "start_ms": 16000,
+        "end_ms": 21000,
+        "onset_latency_ms": 1933,
+        "offset_latency_ms": 1400,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "어깨 수평 유지, 크게 뒤로 젖히기",
+        "state": "BACK",
+        "start_ms": 26000,
+        "end_ms": 31000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "어깨 수평 유지, 살짝만 뒤로 젖히기",
+        "state": "BACK",
+        "start_ms": 36000,
+        "end_ms": 41000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "왼쪽 어깨를 내려 어깨선을 기울이기",
+        "state": "LEFT",
+        "start_ms": 46000,
+        "end_ms": 51000,
+        "onset_latency_ms": 2366,
+        "offset_latency_ms": 333,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "오른쪽 어깨를 내려 어깨선을 기울이기",
+        "state": "RIGHT",
+        "start_ms": 56000,
+        "end_ms": 61000,
+        "onset_latency_ms": 600,
+        "offset_latency_ms": 0,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "왼쪽으로 기울이기",
+        "state": "LEFT",
+        "start_ms": 66000,
+        "end_ms": 68000,
+        "onset_latency_ms": 1200,
+        "offset_latency_ms": 900,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "오른쪽으로 기울이기",
+        "state": "RIGHT",
+        "start_ms": 69000,
+        "end_ms": 71000,
+        "onset_latency_ms": 466,
+        "offset_latency_ms": 0,
+        "missed": false,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "왼쪽으로 기울이기",
+        "state": "LEFT",
+        "start_ms": 72000,
+        "end_ms": 74000,
+        "onset_latency_ms": 233,
+        "offset_latency_ms": 566,
+        "missed": false,
+        "onset_within_tolerance": true
+      },
+      {
+        "desc": "앞으로 숙인 채 양 주먹을 왼쪽으로 쓸기",
+        "state": "FORWARD",
+        "start_ms": 135000,
+        "end_ms": 140000,
+        "onset_latency_ms": 0,
+        "offset_latency_ms": 0,
+        "missed": false,
+        "onset_within_tolerance": true
+      },
+      {
+        "desc": "앞으로 숙인 채로 잽을 계속 뻗기 (전진 상태 유지되어야 함)",
+        "state": "FORWARD",
+        "start_ms": 145000,
+        "end_ms": 150000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      }
+    ],
+    "negative_window_fp_rate": 0.185,
+    "negative_windows": [
+      {
+        "desc": "왼손 잽을 빠르게 4회 (몸이 흔들려도 이동/회전이 뜨면 안 됨)",
+        "start_ms": 110000,
+        "end_ms": 114000,
+        "frames": 120,
+        "false_positive_frames": 24,
+        "fp_rate": 0.2
+      },
+      {
+        "desc": "훅 3회 (팔꿈치를 접고 휘두르기)",
+        "start_ms": 114000,
+        "end_ms": 118000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "어퍼컷 3회 (아래에서 위로)",
+        "start_ms": 118000,
+        "end_ms": 122000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "몸을 푸는 정도로만 살짝 좌우로 흔들기 (기울이지 않기)",
+        "start_ms": 122000,
+        "end_ms": 126000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "양 주먹을 얼굴 옆으로 올려 가드 자세 유지",
+        "start_ms": 126000,
+        "end_ms": 130000,
+        "frames": 120,
+        "false_positive_frames": 87,
+        "fp_rate": 0.725
+      }
+    ]
+  },
+  "rot_axis": {
+    "frame_accuracy": 0.862144420131291,
+    "confusion_matrix": {
+      "NONE": {
+        "NONE": 3940,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      },
+      "ROT_LEFT": {
+        "NONE": 480,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      },
+      "ROT_RIGHT": {
+        "NONE": 150,
+        "ROT_LEFT": 0,
+        "ROT_RIGHT": 0
+      }
+    },
+    "per_class": {
+      "NONE": {
+        "tp": 3940,
+        "fp": 630,
+        "fn": 0,
+        "precision": 0.862144420131291,
+        "recall": 1.0,
+        "f1": 0.9259694477085781
+      },
+      "ROT_LEFT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 480,
+        "precision": null,
+        "recall": 0.0,
+        "f1": null
+      },
+      "ROT_RIGHT": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 150,
+        "precision": null,
+        "recall": 0.0,
+        "f1": null
+      }
+    },
+    "segment_latencies": [
+      {
+        "desc": "어깨는 수평! 양 주먹을 함께 왼쪽으로 한 번 쓸기",
+        "state": "ROT_LEFT",
+        "start_ms": 79000,
+        "end_ms": 84000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "어깨는 수평! 양 주먹을 함께 오른쪽으로 한 번 쓸기",
+        "state": "ROT_RIGHT",
+        "start_ms": 89000,
+        "end_ms": 94000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "왼쪽으로 쓸기 -> 가운데로 되돌리기 -> 다시 왼쪽으로",
+        "state": "ROT_LEFT",
+        "start_ms": 99000,
+        "end_ms": 105000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      },
+      {
+        "desc": "앞으로 숙인 채 양 주먹을 왼쪽으로 쓸기",
+        "state": "ROT_LEFT",
+        "start_ms": 135000,
+        "end_ms": 140000,
+        "onset_latency_ms": null,
+        "offset_latency_ms": null,
+        "missed": true,
+        "onset_within_tolerance": false
+      }
+    ],
+    "negative_window_fp_rate": 0.0,
+    "negative_windows": [
+      {
+        "desc": "왼손 잽을 빠르게 4회 (몸이 흔들려도 이동/회전이 뜨면 안 됨)",
+        "start_ms": 110000,
+        "end_ms": 114000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "훅 3회 (팔꿈치를 접고 휘두르기)",
+        "start_ms": 114000,
+        "end_ms": 118000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "어퍼컷 3회 (아래에서 위로)",
+        "start_ms": 118000,
+        "end_ms": 122000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "몸을 푸는 정도로만 살짝 좌우로 흔들기 (기울이지 않기)",
+        "start_ms": 122000,
+        "end_ms": 126000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      },
+      {
+        "desc": "양 주먹을 얼굴 옆으로 올려 가드 자세 유지",
+        "start_ms": 126000,
+        "end_ms": 130000,
+        "frames": 120,
+        "false_positive_frames": 0,
+        "fp_rate": 0.0
+      }
+    ]
+  }
+}
