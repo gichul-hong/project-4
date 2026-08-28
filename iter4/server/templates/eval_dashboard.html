@@ -37,11 +37,43 @@
     .hud-item span { font-weight: bold; }
 
     /* === Main 3-pane Layout === */
-    #main { display: flex; flex: 1; overflow: hidden; }
+    #main { display: flex; flex: 1; overflow: hidden; position: relative; }
     .pane { position: relative; background: #05080f; overflow: hidden; }
     .pane-video { flex: 3; border-right: 2px solid var(--border); }
     .pane-3d    { flex: 3.2; border-right: 2px solid var(--border); }
     .pane-stats { flex: 2.3; display: flex; flex-direction: column; background: var(--card); overflow-y: auto; }
+    .pane-stats.collapsed { display: none !important; }
+
+    .stats-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px; background: rgba(18,24,36,0.95); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 12; backdrop-filter: blur(4px);
+    }
+    .stats-panel-header h2 { font-size: 0.85rem; font-weight: 700; color: var(--cyan); }
+    .stats-close-btn {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      color: var(--muted); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .stats-close-btn:hover { background: rgba(255,51,102,0.15); color: var(--pink); border-color: var(--pink); }
+
+    .hud-btn {
+      cursor: pointer; transition: all 0.15s; user-select: none;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .hud-btn:hover { background: #26334a; border-color: var(--cyan); color: var(--cyan); }
+    .hud-btn.active { background: rgba(0,229,255,0.18); border-color: var(--cyan); color: var(--cyan); }
+
+    .floating-stats-btn {
+      position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+      z-index: 25; background: var(--card); border: 1px solid var(--cyan);
+      border-right: none; color: var(--cyan); padding: 10px 7px;
+      border-radius: 8px 0 0 8px; font-size: 0.75rem; font-weight: 700;
+      cursor: pointer; box-shadow: -3px 0 12px rgba(0,0,0,0.5);
+      writing-mode: vertical-rl; text-orientation: mixed; display: flex;
+      align-items: center; gap: 6px; transition: all 0.15s;
+    }
+    .floating-stats-btn:hover { background: rgba(0,229,255,0.15); box-shadow: -4px 0 16px rgba(0,229,255,0.3); }
 
     .pane-label {
       position: absolute; top: 8px; left: 8px; z-index: 10;
@@ -143,10 +175,14 @@
     <div class="hud-item">GUARD: <span id="hud-guard" style="color:var(--muted)">OFF</span></div>
     <div class="hud-item">FPS: <span id="hud-fps" style="color:var(--green)">--</span></div>
     <div class="hud-item">DATA: <span id="hud-data" style="color:var(--gold)">로딩 중...</span></div>
+    <button id="btn-toggle-stats" class="hud-item hud-btn" title="통계 패널 가리기/보이기 (단축키: S)">📊 통계 가리기 <span style="opacity:0.6;font-size:0.68rem;">[S]</span></button>
   </div>
 </header>
 
 <div id="main">
+  <!-- 플로팅 통계 열기 버튼 (통계창이 닫혔을 때 표시) -->
+  <button id="btn-show-stats-float" class="floating-stats-btn" title="통계 패널 열기 (단축키: S)" style="display:none;">📊 통계 열기</button>
+
   <!-- 1) 원본 영상 + 스켈레톤 -->
   <div class="pane pane-video">
     <div class="pane-label">📹 원본 녹화 영상 & 관절 추적</div>
@@ -169,6 +205,10 @@
 
   <!-- 3) 벤치마크 정확도 통계 패널 -->
   <div class="pane-stats">
+    <div class="stats-panel-header">
+      <h2>📊 벤치마크 평가 통계</h2>
+      <button id="btn-hide-stats" class="stats-close-btn" title="통계창 가리기 (단축키: S)">✕ 접기</button>
+    </div>
     <div class="stats-section">
       <h3>📊 벤치마크 검출 총괄</h3>
       <div class="metric-grid">
@@ -280,6 +320,10 @@ const tDur = document.getElementById('t-dur');
 const verSel = document.getElementById('ver-sel');
 const btnViewFighter = document.getElementById('btn-view-fighter');
 const btnViewRing = document.getElementById('btn-view-ring');
+const paneStats = document.querySelector('.pane-stats');
+const btnToggleStats = document.getElementById('btn-toggle-stats');
+const btnHideStats = document.getElementById('btn-hide-stats');
+const btnShowStatsFloat = document.getElementById('btn-show-stats-float');
 
 // ==================== Protocol phases ====================
 const PROTOCOL = [
@@ -808,11 +852,67 @@ seek.addEventListener('input', () => { video.currentTime = parseFloat(seek.value
 document.getElementById('speed-sel').addEventListener('change', e => { video.playbackRate = parseFloat(e.target.value); });
 document.getElementById('btn-cam').addEventListener('click', setCameraFighter);
 
-window.addEventListener('resize', () => {
-  tw = threeBox.clientWidth; th = threeBox.clientHeight;
-  cam3.aspect = tw / th; cam3.updateProjectionMatrix(); ren.setSize(tw, th);
-  resizeSkel(); renderMarkers();
+function resizeAll() {
+  tw = threeBox.clientWidth || 450;
+  th = threeBox.clientHeight || 400;
+  cam3.aspect = tw / th;
+  cam3.updateProjectionMatrix();
+  ren.setSize(tw, th);
+  resizeSkel();
+  renderMarkers();
+}
+
+window.addEventListener('resize', resizeAll);
+
+// ==================== 통계 패널 가리기/보이기 토글 ====================
+function toggleStatsPanel(forceState = null) {
+  if (!paneStats) return;
+  const isCurrentlyHidden = paneStats.classList.contains('collapsed');
+  const shouldShow = (forceState !== null) ? forceState : isCurrentlyHidden;
+
+  if (shouldShow) {
+    paneStats.classList.remove('collapsed');
+    if (btnToggleStats) {
+      btnToggleStats.innerHTML = '📊 통계 가리기 <span style="opacity:0.6;font-size:0.68rem;">[S]</span>';
+      btnToggleStats.classList.remove('active');
+    }
+    if (btnShowStatsFloat) btnShowStatsFloat.style.display = 'none';
+    try { localStorage.setItem('boxing_eval_stats_visible', 'true'); } catch(e) {}
+  } else {
+    paneStats.classList.add('collapsed');
+    if (btnToggleStats) {
+      btnToggleStats.innerHTML = '📊 통계 보이기 <span style="opacity:0.6;font-size:0.68rem;">[S]</span>';
+      btnToggleStats.classList.add('active');
+    }
+    if (btnShowStatsFloat) btnShowStatsFloat.style.display = 'flex';
+    try { localStorage.setItem('boxing_eval_stats_visible', 'false'); } catch(e) {}
+  }
+
+  // 레이아웃 변경 후 3D 뷰 및 캔버스 리사이즈 갱신
+  requestAnimationFrame(() => {
+    resizeAll();
+  });
+}
+
+if (btnToggleStats) btnToggleStats.addEventListener('click', () => toggleStatsPanel());
+if (btnHideStats) btnHideStats.addEventListener('click', () => toggleStatsPanel(false));
+if (btnShowStatsFloat) btnShowStatsFloat.addEventListener('click', () => toggleStatsPanel(true));
+
+// 단축키 S (또는 역슬래시 \) 누를 때 통계 패널 토글
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 's' || e.key === 'S' || e.key === '\\') {
+    e.preventDefault();
+    toggleStatsPanel();
+  }
 });
+
+// 저장된 사용자 환경설정(가리기/보이기) 복원
+try {
+  if (localStorage.getItem('boxing_eval_stats_visible') === 'false') {
+    toggleStatsPanel(false);
+  }
+} catch(e) {}
 
 // Render Loop (휴머노이드 절차적 애니메이션 60fps 보간)
 const clk = new THREE.Clock();
